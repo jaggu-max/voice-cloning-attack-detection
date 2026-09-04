@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StructureOS — Technical Design System</title>
+  <meta name="description" content="A prestige-grade technical design system built for precision-first teams. Blueprint aesthetics, zero fluff." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── TOKENS ─────────────────────────────────────────────── */
+    :root {
+      --paper:  #F7F7F5;
+      --forest: #1A3C2B;
+      --grid:   #3A3A38;
+      --coral:  #FF8C69;
+      --mint:   #9EFFBF;
+      --gold:   #F4D35E;
+      --border: rgba(58,58,56,.20);
+      --border-strong: rgba(26,60,43,.25);
+      --radius-sm: 2px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: var(--paper);
+      color: var(--grid);
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* ── SVG MOSAIC BACKGROUND ───────────────────────────────── */
+    #mosaic-bg {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* ── CONTENT LAYER ───────────────────────────────────────── */
+    .page-wrap { position: relative; z-index: 1; }
+
+    /* ── UTILITIES ───────────────────────────────────────────── */
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .grotesk { font-family: 'Space Grotesk', sans-serif; }
+    .upper { text-transform: uppercase; letter-spacing: .1em; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 8px;
+      border: 1px solid rgba(26,60,43,.20);
+      padding: 4px 12px; border-radius: var(--radius-sm);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; text-transform: uppercase; letter-spacing: .12em;
+    }
+    .tag .dot {
+      width: 8px; height: 8px; background: var(--forest);
+      border-radius: 0; display: inline-block; flex-shrink: 0;
+    }
+    .tag.coral .dot { background: var(--coral); }
+    .tag.mint  .dot { background: var(--mint); }
+    .tag.gold  .dot { background: var(--gold); }
+
+    /* ── NAVIGATION ──────────────────────────────────────────── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 32px;
+      background: rgba(247,247,245,.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo {
+      width: 32px; height: 32px; background: var(--forest);
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 0; flex-shrink: 0;
+    }
+    .nav-logo svg { width: 16px; height: 16px; }
+    .nav-links {
+      display: flex; gap: 32px; list-style: none;
+    }
+    .nav-links a {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; text-transform: uppercase; letter-spacing: .12em;
+      text-decoration: none; color: var(--grid);
+      opacity: .7; transition: opacity .15s;
+    }
+    .nav-links a:hover { opacity: 1; }
+    .nav-links span { opacity: .4; margin-right: 4px; }
+    .nav-ctas { display: flex; gap: 10px; align-items: center; }
+    .btn-ghost {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      text-transform: uppercase; letter-spacing: .1em;
+      border: 1px solid var(--border-strong); background: transparent;
+      padding: 8px 16px; cursor: pointer; color: var(--forest);
+      border-radius: var(--radius-sm); transition: background .15s;
+    }
+    .btn-ghost:hover { background: rgba(26,60,43,.07); }
+    .btn-solid {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      text-transform: uppercase; letter-spacing: .1em;
+      background: var(--forest); color: #fff;
+      border: 1px solid var(--forest); padding: 8px 16px;
+      cursor: pointer; border-radius: var(--radius-sm);
+      transition: opacity .15s;
+    }
+    .btn-solid:hover { opacity: .88; }
+
+    /* ── HERO ────────────────────────────────────────────────── */
+    .hero {
+      min-height: 100vh; padding: 120px 64px 80px;
+      display: grid; grid-template-columns: 1fr 420px;
+      gap: 60px; align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .hero-left {}
+    .hero-status {
+      display: flex; align-items: center; gap: 16px; margin-bottom: 36px;
+    }
+    .hero-h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(56px, 7vw, 96px);
+      font-weight: 700; line-height: .92;
+      letter-spacing: -.03em; color: var(--forest);
+      margin-bottom: 36px;
+    }
+    .hero-h1 em { font-style: normal; color: var(--coral); }
+    .hero-sub {
+      display: flex; gap: 0; align-items: flex-start;
+    }
+    .hero-sub .vline {
+      width: 1px; background: var(--forest); opacity: .35;
+      margin-right: 20px; flex-shrink: 0; align-self: stretch;
+    }
+    .hero-sub p {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; line-height: 1.7; text-transform: uppercase;
+      letter-spacing: .07em; opacity: .7; max-width: 480px;
+    }
+    .hero-actions { display: flex; gap: 12px; margin-top: 40px; }
+    .btn-primary {
+      font-family: 'Space Grotesk', sans-serif; font-size: 14px;
+      font-weight: 600; background: var(--forest); color: #fff;
+      border: none; padding: 14px 28px; cursor: pointer;
+      border-radius: var(--radius-sm); transition: opacity .15s;
+    }
+    .btn-primary:hover { opacity: .88; }
+    .btn-outline {
+      font-family: 'Space Grotesk', sans-serif; font-size: 14px;
+      font-weight: 500; background: transparent; color: var(--forest);
+      border: 1px solid var(--border-strong); padding: 14px 28px;
+      cursor: pointer; border-radius: var(--radius-sm); transition: background .15s;
+    }
+    .btn-outline:hover { background: rgba(26,60,43,.06); }
+
+    /* ── HERO WIREFRAME ─────────────────────────────────────── */
+    .hero-right {
+      display: flex; align-items: center; justify-content: center;
+    }
+    .wireframe-box {
+      width: 100%; max-width: 380px; aspect-ratio: 1;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      position: relative; overflow: hidden;
+      background: var(--paper);
+    }
+    .wireframe-box::before, .wireframe-box::after {
+      content: ''; position: absolute; border: 1px dashed rgba(26,60,43,.22);
+      border-radius: 50%;
+    }
+    .wireframe-box::before {
+      width: 70%; height: 70%; top: 15%; left: 15%;
+      animation: spin 18s linear infinite;
+    }
+    .wireframe-box::after {
+      width: 42%; height: 42%; top: 29%; left: 29%;
+      animation: spin 12s linear infinite reverse;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .wireframe-center {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      width: 14%; height: 14%; background: var(--forest);
+      border-radius: var(--radius-sm); z-index: 2;
+    }
+    .wireframe-corner {
+      position: absolute; width: 12px; height: 12px;
+    }
+    .wireframe-corner::before, .wireframe-corner::after {
+      content: ''; position: absolute; background: var(--forest); opacity: .5;
+    }
+    .wireframe-corner.tl { top: 12px; left: 12px; }
+    .wireframe-corner.tl::before { width: 2px; height: 12px; top: 0; left: 0; }
+    .wireframe-corner.tl::after  { width: 12px; height: 2px; top: 0; left: 0; }
+    .wireframe-corner.tr { top: 12px; right: 12px; }
+    .wireframe-corner.tr::before { width: 2px; height: 12px; top: 0; right: 0; }
+    .wireframe-corner.tr::after  { width: 12px; height: 2px; top: 0; right: 0; }
+    .wireframe-corner.bl { bottom: 12px; left: 12px; }
+    .wireframe-corner.bl::before { width: 2px; height: 12px; bottom: 0; left: 0; }
+    .wireframe-corner.bl::after  { width: 12px; height: 2px; bottom: 0; left: 0; }
+    .wireframe-corner.br { bottom: 12px; right: 12px; }
+    .wireframe-corner.br::before { width: 2px; height: 12px; bottom: 0; right: 0; }
+    .wireframe-corner.br::after  { width: 12px; height: 2px; bottom: 0; right: 0; }
+    .wireframe-label {
+      position: absolute; bottom: 16px; left: 16px;
+      font-family: 'JetBrains Mono', monospace; font-size: 9px;
+      text-transform: uppercase; letter-spacing: .12em; opacity: .4;
+    }
+    .wireframe-coords {
+      position: absolute; top: 14px; right: 16px;
+      font-family: 'JetBrains Mono', monospace; font-size: 9px;
+      opacity: .35; letter-spacing: .05em;
+    }
+    .orbit-dot {
+      position: absolute; width: 7px; height: 7px;
+      background: var(--coral); border-radius: 0;
+      transform: translate(-50%, -50%);
+    }
+    .orbit-dot.mint  { background: var(--mint); }
+    .orbit-dot.gold  { background: var(--gold); }
+
+    /* ── METRICS BAR ─────────────────────────────────────────── */
+    .metrics-bar {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      border-bottom: 1px solid var(--border);
+    }
+    .metric {
+      padding: 32px 40px;
+      border-right: 1px solid var(--border);
+    }
+    .metric:last-child { border-right: none; }
+    .metric-num {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 42px; font-weight: 700;
+      color: var(--forest); line-height: 1;
+      margin-bottom: 8px;
+    }
+    .metric-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; text-transform: uppercase;
+      letter-spacing: .12em; opacity: .55;
+    }
+
+    /* ── SECTION HEADER ──────────────────────────────────────── */
+    .section-header {
+      padding: 60px 64px 40px;
+      display: flex; align-items: flex-end; justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-header h2 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(36px, 4vw, 56px); font-weight: 700;
+      color: var(--forest); line-height: .95; letter-spacing: -.025em;
+    }
+    .section-header .right {
+      display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+    }
+    .section-index {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; text-transform: uppercase;
+      letter-spacing: .14em; opacity: .4;
+    }
+
+    /* ── BENTO GRID ──────────────────────────────────────────── */
+    .bento {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: rgba(58,58,56,.18);
+      border-bottom: 1px solid var(--border);
+    }
+    .bento-cell {
+      background: var(--paper);
+      padding: 40px 40px 44px;
+      position: relative; min-height: 340px;
+    }
+    .bento-cell-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: .12em; margin-bottom: 20px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .bento-cell-label .accent-bar {
+      width: 3px; height: 14px; border-radius: 0;
+    }
+    .bento-cell h3 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 28px; font-weight: 600; color: var(--forest);
+      line-height: 1.1; letter-spacing: -.015em; margin-bottom: 16px;
+    }
+    .bento-cell p {
+      font-size: 14px; line-height: 1.65; opacity: .65; margin-bottom: 24px;
+    }
+    /* Code mockup */
+    .code-mock {
+      background: var(--forest); color: #9EFFBF;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; padding: 16px; border-radius: var(--radius-sm);
+      line-height: 1.7; margin-top: 12px;
+    }
+    .code-mock .cm-key   { color: #F4D35E; }
+    .code-mock .cm-val   { color: #FF8C69; }
+    .code-mock .cm-cmt   { opacity: .45; }
+    /* Error chip mock */
+    .error-mock {
+      border: 1px solid rgba(255,140,105,.45);
+      background: rgba(255,140,105,.07);
+      padding: 12px 16px; margin-top: 12px;
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      border-radius: var(--radius-sm); color: #c0522c;
+    }
+    .error-mock .err-tag {
+      display: inline-block; background: var(--coral); color: #fff;
+      font-size: 9px; padding: 2px 6px; margin-bottom: 6px;
+      letter-spacing: .08em; text-transform: uppercase;
+    }
+    /* Chip row */
+    .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .chip {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      text-transform: uppercase; letter-spacing: .09em;
+      padding: 5px 12px; border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm); background: transparent;
+    }
+    .chip.filled-coral { background: var(--coral); border-color: var(--coral); color: #fff; }
+    .chip.filled-mint  { background: var(--mint);  border-color: var(--mint);  color: var(--forest); }
+    .chip.filled-gold  { background: var(--gold);  border-color: var(--gold);  color: var(--forest); }
+
+    /* ── NETWORK TOPOLOGY ────────────────────────────────────── */
+    .topology-section {
+      padding: 80px 64px;
+      border-bottom: 1px solid var(--border);
+      display: grid; grid-template-columns: 1fr 480px; gap: 80px;
+      align-items: center;
+    }
+    .topology-wrap {
+      display: flex; justify-content: center;
+    }
+    .topology-container {
+      width: 420px; height: 420px;
+      border: 1px solid var(--border-strong);
+      border-radius: 50%; position: relative;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #topology-svg {
+      width: 100%; height: 100%;
+      position: absolute; top: 0; left: 0;
+    }
+    .topo-center {
+      width: 16px; height: 16px; background: var(--forest);
+      border-radius: 0; z-index: 2; position: relative;
+    }
+    .orbit-ring {
+      position: absolute; border-radius: 50%;
+      border: 1px dashed rgba(26,60,43,.28);
+      transform-origin: center;
+    }
+    .orbit-node {
+      position: absolute; width: 10px; height: 10px;
+      border-radius: 0;
+    }
+
+    /* ── TESTIMONIALS ────────────────────────────────────────── */
+    .testimonials-section {
+      padding: 0 0 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .testimonials-header {
+      padding: 60px 64px 0;
+    }
+    .testimonials-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: rgba(58,58,56,.18);
+      margin-top: 40px;
+    }
+    .tcard {
+      background: var(--paper);
+      padding: 32px; display: flex; flex-direction: column;
+      border-radius: 0; transition: background .2s;
+    }
+    .tcard:hover { background: rgba(26,60,43,.03); }
+    .tcard-top {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .tcard-stars { display: flex; gap: 4px; }
+    .tcard-star {
+      width: 10px; height: 10px; background: var(--gold);
+      clip-path: polygon(50% 0%,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);
+    }
+    .quote-icon {
+      font-size: 28px; color: var(--forest); opacity: .3;
+      font-family: 'Space Grotesk', sans-serif; line-height: 1;
+    }
+    .tcard-body {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; line-height: 1.7; opacity: .7;
+      flex: 1; margin-bottom: 24px;
+    }
+    .tcard-footer {
+      border-top: 1px solid var(--border); padding-top: 16px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .tcard-avatar {
+      width: 36px; height: 36px; border-radius: 0;
+      background: var(--forest); display: flex; align-items: center;
+      justify-content: center; color: var(--mint);
+      font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .tcard-name {
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      text-transform: uppercase; letter-spacing: .08em; color: var(--forest);
+    }
+    .tcard-title {
+      font-family: 'JetBrains Mono', monospace; font-size: 9px;
+      text-transform: uppercase; letter-spacing: .1em; opacity: .45; margin-top: 2px;
+    }
+
+    /* ── FORM CTA ────────────────────────────────────────────── */
+    .form-section {
+      padding: 100px 64px;
+      display: flex; align-items: center; justify-content: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .form-box {
+      width: 100%; max-width: 640px;
+      border: 1px solid var(--border-strong);
+      padding: 56px 52px;
+      position: relative; background: var(--paper);
+      border-radius: var(--radius-sm);
+    }
+    /* L-corner markers */
+    .corner-marker {
+      position: absolute; width: 14px; height: 14px;
+    }
+    .corner-marker::before, .corner-marker::after {
+      content: ''; position: absolute; background: var(--forest);
+    }
+    .corner-marker.tl { top: -1px; left: -1px; }
+    .corner-marker.tl::before { width: 2px; height: 14px; top: 0; left: 0; }
+    .corner-marker.tl::after  { width: 14px; height: 2px; top: 0; left: 0; }
+    .corner-marker.tr { top: -1px; right: -1px; }
+    .corner-marker.tr::before { width: 2px; height: 14px; top: 0; right: 0; }
+    .corner-marker.tr::after  { width: 14px; height: 2px; top: 0; right: 0; }
+    .corner-marker.bl { bottom: -1px; left: -1px; }
+    .corner-marker.bl::before { width: 2px; height: 14px; bottom: 0; left: 0; }
+    .corner-marker.bl::after  { width: 14px; height: 2px; bottom: 0; left: 0; }
+    .corner-marker.br { bottom: -1px; right: -1px; }
+    .corner-marker.br::before { width: 2px; height: 14px; bottom: 0; right: 0; }
+    .corner-marker.br::after  { width: 14px; height: 2px; bottom: 0; right: 0; }
+
+    .form-box-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 36px; font-weight: 700; color: var(--forest);
+      line-height: 1; letter-spacing: -.02em; margin-bottom: 8px;
+    }
+    .form-box-sub {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
+      opacity: .5; margin-bottom: 40px;
+    }
+    .form-row { margin-bottom: 24px; }
+    .form-row label {
+      display: block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; text-transform: uppercase; letter-spacing: .12em;
+      opacity: .6; margin-bottom: 6px;
+    }
+    .form-row input, .form-row select, .form-row textarea {
+      width: 100%; background: #fff;
+      border: 1px solid var(--border-strong);
+      padding: 12px 14px;
+      font-family: 'JetBrains Mono', monospace; font-size: 13px;
+      color: var(--grid); outline: none;
+      border-radius: var(--radius-sm);
+      transition: border-color .15s;
+      appearance: none;
+    }
+    .form-row input:focus, .form-row textarea:focus {
+      border-color: var(--forest);
+    }
+    .form-row textarea { resize: vertical; min-height: 90px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-submit {
+      width: 100%; background: var(--forest); color: #fff;
+      border: none; padding: 14px;
+      font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 600;
+      cursor: pointer; border-radius: var(--radius-sm);
+      letter-spacing: .02em; transition: opacity .15s; margin-top: 8px;
+    }
+    .form-submit:hover { opacity: .88; }
+    .form-note {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      text-transform: uppercase; letter-spacing: .1em;
+      opacity: .4; text-align: center; margin-top: 14px;
+    }
+
+    /* ── FOOTER ──────────────────────────────────────────────── */
+    footer {
+      padding: 40px 64px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .footer-logo {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .footer-logo-box {
+      width: 24px; height: 24px; background: var(--forest);
+      border-radius: 0;
+    }
+    .footer-name {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px; font-weight: 600; color: var(--forest);
+    }
+    .footer-copy {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      text-transform: uppercase; letter-spacing: .1em; opacity: .35;
+    }
+    .footer-links { display: flex; gap: 24px; }
+    .footer-links a {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      text-transform: uppercase; letter-spacing: .1em;
+      text-decoration: none; opacity: .4; color: var(--grid);
+      transition: opacity .15s;
+    }
+    .footer-links a:hover { opacity: .9; }
+
+    /* ── RESPONSIVE ──────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; padding: 100px 28px 60px; }
+      .hero-right { display: none; }
+      .bento { grid-template-columns: 1fr; }
+      .metrics-bar { grid-template-columns: 1fr 1fr; }
+      .testimonials-grid { grid-template-columns: 1fr; }
+      .topology-section { grid-template-columns: 1fr; padding: 60px 28px; }
+      .topology-wrap { display: none; }
+      .section-header { padding: 40px 28px 28px; flex-direction: column; gap: 12px; align-items: flex-start; }
+      .form-section { padding: 60px 28px; }
+      nav { padding: 0 20px; }
+      .nav-links { display: none; }
+      footer { flex-direction: column; gap: 16px; padding: 32px 28px; text-align: center; }
+      .footer-links { flex-wrap: wrap; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── MOSAIC BACKGROUND ─────────────────────────────────── -->
+<svg id="mosaic-bg" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="mosaic" x="0" y="0" width="320" height="320" patternUnits="userSpaceOnUse">
+      <!-- Large squares -->
+      <rect x="0"   y="0"   width="140" height="140" fill="#F7F7F5" stroke="rgba(58,58,56,0.28)" stroke-width="0.5"/>
+      <rect x="140" y="0"   width="80"  height="80"  fill="#F7F7F5" stroke="rgba(58,58,56,0.28)" stroke-width="0.5"/>
+      <rect x="220" y="0"   width="100" height="60"  fill="#F7F7F5" stroke="rgba(58,58,56,0.28)" stroke-width="0.5"/>
+      <!-- Horizontal strips -->
+      <rect x="0"   y="140" width="200" height="50"  fill="#F7F7F5" stroke="rgba(58,58,56,0.28)" stroke-width="0.5"/>
+      <rect x="140" y="80"  width="180" height="60"  fill="#F7F7F5" stroke="rgba(58,58,56,0.28)" stroke-width="0.5"/>
+      <!-- Vertical blocks -->
+      <rect x="200" y="140" width="60"  height="180" fill="#F7F7F5" stroke="rgba(58,58,56,0.28)" stroke-width="0.5"/>
+      <rect x="260" y="60"  width="60"  height="120" fill="#F7F7F5" stroke="rgba(58,58,56,0.28)" stroke-width="0.5"/>
+      <!-- Bottom fills -->
+      <rect x="0"   y="190" width="120" height="130" fill="#F7F7F5" stroke="rgba(58,58,56,0.28)" stroke-width="0.5"/>
+      <rect x="120" y="190" width="80"  height="60"  fill="#F7F7F5" stroke="rgba(58,58,56,0.28)" stroke-width="0.5"/>
+      <rect x="120" y="250" width="80"  height="70"  fill="#F7F7F5" stroke="rgba(58,58,56,0.28)" stroke-width="0.5"/>
+      <rect x="260" y="180" width="60"  height="140" fill="#F7F7F5" stroke="rgba(58,58,56,0.28)" stroke-width="0.5"/>
+      <rect x="220" y="60"  width="40"  height="80"  fill="#F7F7F5" stroke="rgba(58,58,56,0.28)" stroke-width="0.5"/>
+    </pattern>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#mosaic)"/>
+</svg>
+
+<div class="page-wrap">
+
+  <!-- ── NAV ───────────────────────────────────────────────── -->
+  <nav>
+    <div class="nav-logo">
+      <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="2" width="5" height="5" fill="white"/>
+        <rect x="9" y="2" width="5" height="5" fill="white" opacity=".5"/>
+        <rect x="2" y="9" width="5" height="5" fill="white" opacity=".5"/>
+        <rect x="9" y="9" width="5" height="5" fill="white"/>
+      </svg>
+    </div>
+    <ul class="nav-links">
+      <li><a href="#features"><span>01.</span> Features</a></li>
+      <li><a href="#topology"><span>02.</span> Network</a></li>
+      <li><a href="#testimonials"><span>03.</span> Reviews</a></li>
+      <li><a href="#contact"><span>04.</span> Contact</a></li>
+    </ul>
+    <div class="nav-ctas">
+      <button class="btn-ghost">Docs</button>
+      <button class="btn-solid">Get Access →</button>
+    </div>
+  </nav>
+
+  <!-- ── HERO ─────────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="hero-left">
+      <div class="hero-status">
+        <span class="tag"><span class="dot"></span>System Operational</span>
+        <span class="tag gold"><span class="dot gold"></span>v2.4.0 Released</span>
+      </div>
+      <h1 class="hero-h1">Build with<br/><em>Precision.</em><br/>Ship with<br/>Structure.</h1>
+      <div class="hero-sub">
+        <div class="vline"></div>
+        <p>A prestige-grade design system for precision-first<br/>engineering teams. Blueprint aesthetics, zero fluff,<br/>infinite extensibility.</p>
+      </div>
+      <div class="hero-actions">
+        <button class="btn-primary">Start Building →</button>
+        <button class="btn-outline">View Docs</button>
+      </div>
+    </div>
+    <div class="hero-right">
+      <div class="wireframe-box" id="wireframe">
+        <div class="wireframe-corner tl"></div>
+        <div class="wireframe-corner tr"></div>
+        <div class="wireframe-corner bl"></div>
+        <div class="wireframe-corner br"></div>
+        <div class="wireframe-center"></div>
+        <!-- orbit dots rendered by JS -->
+        <div class="wireframe-label mono upper" style="font-size:9px;opacity:.3">StructureOS · v2.4</div>
+        <div class="wireframe-coords mono">X:0.00 Y:0.00</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── METRICS ───────────────────────────────────────────── -->
+  <div class="metrics-bar">
+    <div class="metric">
+      <div class="metric-num">98%</div>
+      <div class="metric-label mono upper">Perf Score</div>
+    </div>
+    <div class="metric">
+      <div class="metric-num">0.5px</div>
+      <div class="metric-label mono upper">Hairline grid</div>
+    </div>
+    <div class="metric">
+      <div class="metric-num">240+</div>
+      <div class="metric-label mono upper">Components</div>
+    </div>
+    <div class="metric">
+      <div class="metric-num">4</div>
+      <div class="metric-label mono upper">Core palettes</div>
+    </div>
+  </div>
+
+  <!-- ── BENTO FEATURES ───────────────────────────────────── -->
+  <div id="features">
+    <div class="section-header">
+      <h2>Core<br/>System<br/>Features</h2>
+      <div class="right">
+        <span class="section-index mono upper">02 / System</span>
+        <span class="tag"><span class="dot mint" style="background:#9EFFBF"></span>Design Tokens</span>
+      </div>
+    </div>
+
+    <div class="bento">
+      <!-- Cell 1 -->
+      <div class="bento-cell">
+        <div class="bento-cell-label mono upper">
+          <div class="accent-bar" style="background:var(--coral)"></div>
+          Token Architecture
+        </div>
+        <h3>Atomic Design<br/>at Scale</h3>
+        <p>Every value is a token. Colors, spacing, type — all systematically versioned and exportable via a single source of truth.</p>
+        <div class="code-mock">
+          <div><span class="cm-cmt">// tokens.config.js</span></div>
+          <div><span class="cm-key">colors</span>: {</div>
+          <div>&nbsp;&nbsp;<span class="cm-key">forest</span>: <span class="cm-val">"#1A3C2B"</span>,</div>
+          <div>&nbsp;&nbsp;<span class="cm-key">coral</span>: <span class="cm-val">"#FF8C69"</span>,</div>
+          <div>&nbsp;&nbsp;<span class="cm-key">mint</span>: <span class="cm-val">"#9EFFBF"</span></div>
+          <div>}</div>
+        </div>
+      </div>
+      <!-- Cell 2 -->
+      <div class="bento-cell">
+        <div class="bento-cell-label mono upper">
+          <div class="accent-bar" style="background:var(--mint)"></div>
+          Error Handling
+        </div>
+        <h3>Resilient By<br/>Default</h3>
+        <p>Built-in error states, loading skeletons, and boundary components prevent broken states from reaching production.</p>
+        <div class="error-mock">
+          <div class="err-tag">TypeError</div>
+          <div>Cannot read properties of null<br/>(reading 'dataset')</div>
+          <div style="opacity:.5;margin-top:6px">→ components/Card.tsx:L47</div>
+        </div>
+        <div class="chip-row" style="margin-top:16px">
+          <span class="chip filled-coral">Error</span>
+          <span class="chip filled-gold">Warning</span>
+          <span class="chip">Info</span>
+        </div>
+      </div>
+      <!-- Cell 3 -->
+      <div class="bento-cell">
+        <div class="bento-cell-label mono upper">
+          <div class="accent-bar" style="background:var(--gold)"></div>
+          Typography
+        </div>
+        <h3>Precision<br/>Type Scale</h3>
+        <p>Three font families. One hierarchy. Headers in Space Grotesk, monospace labels in JetBrains Mono, body in Plus Jakarta.</p>
+        <div style="margin-top: 16px; display:flex; flex-direction:column; gap:8px;">
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:32px;font-weight:700;color:var(--forest);line-height:1">Display/H1</div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:600;color:var(--forest)">Heading / H2</div>
+          <div style="font-size:14px;opacity:.7;line-height:1.6">Body — Plus Jakarta Sans 14px</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.1em;opacity:.55">MONO LABEL · 11PX</div>
+        </div>
+      </div>
+      <!-- Cell 4 -->
+      <div class="bento-cell">
+        <div class="bento-cell-label mono upper">
+          <div class="accent-bar" style="background:var(--forest)"></div>
+          Layout System
+        </div>
+        <h3>1px Grid<br/>Structure</h3>
+        <p>Hairline borders define spatial relationships. No shadows. No gradients. Just structure — clean and compositional.</p>
+        <div style="margin-top:16px; display:grid; grid-template-columns:2fr 1fr 1fr; gap:1px; background:rgba(58,58,56,.2); border:1px solid rgba(58,58,56,.2);">
+          <div style="background:var(--paper);padding:16px;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;opacity:.5">Main Col</div>
+          <div style="background:var(--paper);padding:16px;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;opacity:.5">Side</div>
+          <div style="background:var(--paper);padding:16px;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;opacity:.5">Meta</div>
+          <div style="background:rgba(26,60,43,.06);padding:20px;grid-column:1;height:60px"></div>
+          <div style="background:rgba(26,60,43,.06);padding:20px;height:60px"></div>
+          <div style="background:rgba(26,60,43,.06);padding:20px;height:60px"></div>
+        </div>
+        <div class="chip-row">
+          <span class="chip filled-mint">Bento</span>
+          <span class="chip">Flex</span>
+          <span class="chip">Masonry</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TOPOLOGY SECTION ──────────────────────────────────── -->
+  <section class="topology-section" id="topology">
+    <div>
+      <span class="section-index mono upper" style="display:block;margin-bottom:24px">03 / Network</span>
+      <h2 style="font-family:'Space Grotesk',sans-serif;font-size:clamp(36px,4vw,54px);font-weight:700;color:var(--forest);line-height:.95;letter-spacing:-.025em;margin-bottom:24px">System<br/>Architecture<br/>Graph</h2>
+      <div style="display:flex;gap:0;align-items:flex-start;margin-bottom:32px">
+        <div style="width:1px;background:var(--forest);opacity:.3;margin-right:20px;flex-shrink:0;min-height:60px"></div>
+        <p style="font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.7;text-transform:uppercase;letter-spacing:.07em;opacity:.6">An abstract visualization of how design tokens, components, patterns and documentation nodes interconnect in the system network.</p>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="tag"><span class="dot"></span>Forest Node — Core Tokens</div>
+        <div class="tag coral"><span class="dot coral" style="background:var(--coral)"></span>Coral Node — Components</div>
+        <div class="tag mint"><span class="dot mint" style="background:var(--mint)"></span>Mint Node — Patterns</div>
+        <div class="tag gold"><span class="dot gold" style="background:var(--gold)"></span>Gold Node — Documentation</div>
+      </div>
+    </div>
+    <div class="topology-wrap">
+      <div class="topology-container" id="topo-wrap">
+        <svg id="topology-svg" viewBox="0 0 420 420" xmlns="http://www.w3.org/2000/svg">
+          <!-- Orbit rings -->
+          <circle cx="210" cy="210" r="80" fill="none" stroke="rgba(26,60,43,0.18)" stroke-width="1" stroke-dasharray="4 4"/>
+          <circle cx="210" cy="210" r="140" fill="none" stroke="rgba(26,60,43,0.12)" stroke-width="1" stroke-dasharray="4 6"/>
+          <circle cx="210" cy="210" r="190" fill="none" stroke="rgba(26,60,43,0.08)" stroke-width="1" stroke-dasharray="2 8"/>
+          <!-- Connection lines (static) -->
+          <line id="line1" x1="210" y1="210" x2="210" y2="130" stroke="rgba(26,60,43,0.18)" stroke-width="1"/>
+          <line id="line2" x1="210" y1="210" x2="280" y2="280" stroke="rgba(26,60,43,0.18)" stroke-width="1"/>
+          <line id="line3" x1="210" y1="210" x2="140" y2="280" stroke="rgba(26,60,43,0.18)" stroke-width="1"/>
+          <!-- Center node -->
+          <rect x="203" y="203" width="14" height="14" fill="#1A3C2B"/>
+          <!-- Orbit nodes (animated via JS) -->
+          <rect id="node1" x="203" y="123" width="10" height="10" fill="#FF8C69"/>
+          <rect id="node2" x="273" y="273" width="10" height="10" fill="#9EFFBF"/>
+          <rect id="node3" x="133" y="273" width="10" height="10" fill="#F4D35E"/>
+          <!-- Labels -->
+          <text x="210" y="118" font-family="JetBrains Mono" font-size="8" fill="#1A3C2B" text-anchor="middle" opacity=".5" text-transform="uppercase">TOKENS</text>
+          <text x="295" y="292" font-family="JetBrains Mono" font-size="8" fill="#1A3C2B" text-anchor="middle" opacity=".5">COMP</text>
+          <text x="125" y="292" font-family="JetBrains Mono" font-size="8" fill="#1A3C2B" text-anchor="middle" opacity=".5">DOCS</text>
+        </svg>
+        <div class="topo-center"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── TESTIMONIALS ─────────────────────────────────────── -->
+  <section id="testimonials" class="testimonials-section">
+    <div class="testimonials-header">
+      <span class="section-index mono upper" style="display:block;margin-bottom:16px">04 / Testimonials</span>
+      <h2 style="font-family:'Space Grotesk',sans-serif;font-size:clamp(36px,4vw,54px);font-weight:700;color:var(--forest);line-height:.95;letter-spacing:-.025em;">Trusted by<br/>Precision Teams</h2>
+    </div>
+    <div class="testimonials-grid">
+      <div class="tcard">
+        <div class="tcard-top">
+          <div class="quote-icon">"</div>
+          <div class="tcard-stars">
+            <div class="tcard-star"></div><div class="tcard-star"></div>
+            <div class="tcard-star"></div><div class="tcard-star"></div>
+            <div class="tcard-star"></div>
+          </div>
+        </div>
+        <div class="tcard-body">StructureOS completely replaced our internal Figma chaos. The token architecture alone saved us 40+ hours of inconsistency debugging per sprint. Nothing comes close.</div>
+        <div class="tcard-footer">
+          <div class="tcard-avatar">AK</div>
+          <div>
+            <div class="tcard-name">Arjun Khanna</div>
+            <div class="tcard-title">Lead Designer · Finova</div>
+          </div>
+        </div>
+      </div>
+      <div class="tcard">
+        <div class="tcard-top">
+          <div class="quote-icon">"</div>
+          <div class="tcard-stars">
+            <div class="tcard-star"></div><div class="tcard-star"></div>
+            <div class="tcard-star"></div><div class="tcard-star"></div>
+            <div class="tcard-star"></div>
+          </div>
+        </div>
+        <div class="tcard-body">The 1px grid philosophy changed how our entire frontend team thinks about layout. Every PR is cleaner. Every review faster. Absolute game-changer for handoffs.</div>
+        <div class="tcard-footer">
+          <div class="tcard-avatar">SC</div>
+          <div>
+            <div class="tcard-name">Sara Chen</div>
+            <div class="tcard-title">Eng Manager · Corestack</div>
+          </div>
+        </div>
+      </div>
+      <div class="tcard">
+        <div class="tcard-top">
+          <div class="quote-icon">"</div>
+          <div class="tcard-stars">
+            <div class="tcard-star"></div><div class="tcard-star"></div>
+            <div class="tcard-star"></div><div class="tcard-star"></div>
+            <div class="tcard-star"></div>
+          </div>
+        </div>
+        <div class="tcard-body">We shipped a rebrand in 3 weeks using StructureOS. The bento component patterns held up perfectly across mobile, tablet, and 4K displays. Mind-blowing consistency.</div>
+        <div class="tcard-footer">
+          <div class="tcard-avatar">YR</div>
+          <div>
+            <div class="tcard-name">Yusuf Rahman</div>
+            <div class="tcard-title">CTO · Vaultline</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── FORM CTA ──────────────────────────────────────────── -->
+  <section class="form-section" id="contact">
+    <div class="form-box">
+      <div class="corner-marker tl"></div>
+      <div class="corner-marker tr"></div>
+      <div class="corner-marker bl"></div>
+      <div class="corner-marker br"></div>
+
+      <div style="margin-bottom:28px">
+        <span class="tag"><span class="dot mint" style="background:var(--mint)"></span>Early Access</span>
+      </div>
+      <div class="form-box-title">Request Access</div>
+      <div class="form-box-sub mono upper">Join 240+ teams on the waitlist</div>
+
+      <div class="form-grid">
+        <div class="form-row">
+          <label>First Name</label>
+          <input type="text" placeholder="Arjun" id="fname"/>
+        </div>
+        <div class="form-row">
+          <label>Last Name</label>
+          <input type="text" placeholder="Khanna" id="lname"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Work Email</label>
+        <input type="email" placeholder="arjun@finova.io" id="email"/>
+      </div>
+      <div class="form-row">
+        <label>Company / Team Size</label>
+        <select id="team-size">
+          <option value="">Select team size</option>
+          <option>1–5 (Solo / Startup)</option>
+          <option>6–25 (Small Team)</option>
+          <option>26–100 (Mid-Market)</option>
+          <option>100+ (Enterprise)</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>What are you building?</label>
+        <textarea id="desc" placeholder="We're building a fintech dashboard and need a consistent design system..."></textarea>
+      </div>
+      <button class="form-submit" onclick="handleSubmit()">Submit Request →</button>
+      <div class="form-note mono">No spam. No credit card. Just a response within 48h.</div>
+    </div>
+  </section>
+
+  <!-- ── FOOTER ────────────────────────────────────────────── -->
+  <footer>
+    <div class="footer-logo">
+      <div class="footer-logo-box"></div>
+      <span class="footer-name">StructureOS</span>
+    </div>
+    <div class="footer-copy mono">© 2026 StructureOS — All rights reserved</div>
+    <div class="footer-links">
+      <a href="#">Docs</a>
+      <a href="#">Components</a>
+      <a href="#">Changelog</a>
+      <a href="#">GitHub</a>
+    </div>
+  </footer>
+
+</div><!-- /page-wrap -->
+
+<script>
+  /* ── WIREFRAME ORBIT DOTS ─────────────────────────────── */
+  const wireframe = document.getElementById('wireframe');
+  const w = wireframe ? wireframe.offsetWidth : 380;
+  const cx = w / 2, cy = w / 2;
+  const r1 = w * .35, r2 = w * .24;
+
+  const orbitDots = [
+    { r: r1, speed: 14000, startAngle: 0,   color: 'var(--coral)' },
+    { r: r2, speed: 9000,  startAngle: 120, color: 'var(--mint)'  },
+    { r: r1, speed: 20000, startAngle: 240, color: 'var(--gold)'  },
+  ];
+
+  const dotEls = orbitDots.map(d => {
+    const el = document.createElement('div');
+    el.style.cssText = `position:absolute;width:7px;height:7px;background:${d.color};border-radius:0;transform:translate(-50%,-50%);`;
+    wireframe && wireframe.appendChild(el);
+    return el;
+  });
+
+  function animateOrbits(ts) {
+    orbitDots.forEach((d, i) => {
+      const deg = ((ts / d.speed) * 360 + d.startAngle) % 360;
+      const rad = (deg - 90) * Math.PI / 180;
+      const x = cx + d.r * Math.cos(rad);
+      const y = cy + d.r * Math.sin(rad);
+      dotEls[i].style.left = x + 'px';
+      dotEls[i].style.top  = y + 'px';
+    });
+    requestAnimationFrame(animateOrbits);
+  }
+  requestAnimationFrame(animateOrbits);
+
+  /* ── TOPOLOGY ANIMATION ───────────────────────────────── */
+  const nodes = [
+    { el: document.getElementById('node1'), r: 80, speed: 22000, startAngle: 270, lineId: 'line1', color:'#FF8C69', cx:210, cy:210 },
+    { el: document.getElementById('node2'), r: 140, speed: 30000, startAngle: 45, lineId: 'line2', color:'#9EFFBF', cx:210, cy:210 },
+    { el: document.getElementById('node3'), r: 80, speed: 18000, startAngle: 150, lineId: 'line3', color:'#F4D35E', cx:210, cy:210 },
+  ];
+
+  function animateTopo(ts) {
+    nodes.forEach(n => {
+      if (!n.el) return;
+      const deg = ((ts / n.speed) * 360 + n.startAngle) % 360;
+      const rad = (deg - 90) * Math.PI / 180;
+      const x = n.cx + n.r * Math.cos(rad);
+      const y = n.cy + n.r * Math.sin(rad);
+      n.el.setAttribute('x', x - 5);
+      n.el.setAttribute('y', y - 5);
+      const line = document.getElementById(n.lineId);
+      if (line) { line.setAttribute('x2', x); line.setAttribute('y2', y); }
+    });
+    requestAnimationFrame(animateTopo);
+  }
+  requestAnimationFrame(animateTopo);
+
+  /* ── WIREFRAME COORDS ─────────────────────────────────── */
+  const coords = document.querySelector('.wireframe-coords');
+  function updateCoords(ts) {
+    if (coords) {
+      const vx = (Math.sin(ts / 3200) * 9.99).toFixed(2);
+      const vy = (Math.cos(ts / 4000) * 9.99).toFixed(2);
+      const sign = n => n >= 0 ? '+' : '';
+      coords.textContent = `X:${sign(vx)}${vx} Y:${sign(vy)}${vy}`;
+    }
+    requestAnimationFrame(updateCoords);
+  }
+  requestAnimationFrame(updateCoords);
+
+  /* ── FORM SUBMIT ──────────────────────────────────────── */
+  function handleSubmit() {
+    const email = document.getElementById('email').value;
+    const fname = document.getElementById('fname').value;
+    if (!email || !fname) {
+      alert('Please fill in at least your name and email.');
+      return;
+    }
+    const btn = document.querySelector('.form-submit');
+    btn.textContent = '✓ Request Received';
+    btn.style.background = '#2A6644';
+    btn.disabled = true;
+  }
+</script>
+
+</body>
+</html>

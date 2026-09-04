@@ -11,6 +11,14 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Scratch & test artifacts
+*.resolved
+test.wav
+*.png
+*.webp
+*.txt
+
 # OS files
 .DS_Store
 Thumbs.db
+
