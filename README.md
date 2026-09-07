@@ -1,290 +1,156 @@
 # VoiceGuard — Voice Cloning Attack Detection
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/Frontend-React_18_--_Vite_--_TypeScript-61DAFB?logo=react)](https://react.dev/)
 [![PyTorch](https://img.shields.io/badge/ML-PyTorch_--_Wav2Vec2-EE4C2C?logo=pytorch)](https://pytorch.org/)
-[![Tailwind CSS](https://img.shields.io/badge/Design-Technical_Minimalist-1A3C2B)](https://tailwindcss.com/)
+[![Render](https://img.shields.io/badge/Deploy-Render_Ready-46E3B7?logo=render)](https://render.com/)
 
 An enterprise-grade, high-precision detection system engineered to identify synthetic and AI-generated voice recordings to mitigate voice cloning impersonation threats.
 
 ---
 
-## 📋 Table of Contents
-
-- [Overview & Threat Model](#-overview--threat-model)
-- [System Architecture](#-system-architecture)
-- [Technical Stack & Environment](#-technical-stack--environment)
-  - [Backend Dependencies](#backend-dependencies)
-  - [Frontend Dependencies](#frontend-dependencies)
-- [Project Directory Structure](#-project-directory-structure)
-- [Installation & Setup Guide](#-installation--setup-guide)
-  - [Prerequisites](#1-prerequisites)
-  - [1. Backend Setup & Server Execution](#2-backend-setup--server-execution)
-  - [2. Frontend Setup & Server Execution](#3-frontend-setup--server-execution)
-- [API Reference](#-api-reference)
-- [Design System & Aesthetics](#-design-system--aesthetics)
-- [Detection Philosophy & Terminology](#-detection-philosophy--terminology)
-- [License](#-license)
-
----
-
-## 🎙️ Overview & Threat Model
-
-Attackers increasingly use **AI voice cloning technology** to impersonate trusted authority figures—such as CEOs, CFOs, IT administrators, or family members. By generating realistic voice clips, malicious actors create false urgency to authorize fraudulent wire transfers, extract sensitive credentials, or bypass security protocols.
-
-**VoiceGuard** allows security teams and analysts to upload suspicious audio files (`MP3`, `WAV`, `OGG`, `FLAC`) and evaluate acoustic artifacts indicative of synthetic generation using deep neural network inference.
-
----
-
 ## 🏗️ System Architecture
 
-The application operates on a decoupled client-server model. The frontend provides a **Technical Minimalist** control panel, while the backend orchestrates FFmpeg normalization and executes PyTorch neural network inference via the **Pellav2** model engine.
-
-```mermaid
-flowchart TD
-    subgraph Client ["Frontend (React + Vite + TypeScript)"]
-        UI["Technical Minimalist UI"]
-        UP["Audio File Selector / Dropzone"]
-        WAVE["Audio Waveform & Player"]
-        RES["Detection Result & Risk Score Meter"]
-        UI --> UP --> WAVE --> RES
-    end
-
-    subgraph API ["Backend API Server (FastAPI / Uvicorn)"]
-        VAL["File Validation (Format & Size Check)"]
-        FFMPEG["FFmpeg Audio Converter (16kHz Mono PCM WAV)"]
-        MODEL["Pellav2 Detector Engine (PyTorch / Wav2Vec2)"]
-        PARSER["Output Parser & Risk Assessor"]
-        
-        VAL --> FFMPEG --> MODEL --> PARSER
-    end
-
-    UP -- "POST /api/analyze (Multipart Form Data)" --> VAL
-    PARSER -- "JSON Response { p_fake, classification, label }" --> RES
-```
-
-### Data Lifecycle
-
-1. **Upload & Validation**: User submits an audio clip (`.wav`, `.mp3`, etc., up to 50MB) via the drag-and-drop zone.
-2. **Audio Preprocessing**: FastAPI receives the upload and invokes `ffmpeg.exe` to convert the audio into a standard **16 kHz mono 16-bit PCM WAV** stream.
-3. **Pellav2 Model Inference**: The preprocessed clip is passed to `pellav2_infer.py`. The model leverages a **Wav2Vec2** XLS-R-300M backbone with hidden-state feature fusion and a linear classification head (`pellav2_detector.pt`).
-4. **Probabilistic Risk Scoring**: The model calculates $p_{\text{fake}} \in [0.0, 1.0]$. The backend returns a structured JSON payload to render real-time probabilistic scores and safety recommendations on the dashboard.
-
----
-
-## ⚡ Technical Stack & Environment
-
-### Backend Dependencies
-The backend requires **Python 3.10+** and relies on the following core libraries (located at `backend/requirements.txt`):
-
-| Environment Component | Version / Spec | Purpose |
-| :--- | :--- | :--- |
-| **Python** | `3.10+` | Runtime environment |
-| **FastAPI** | `^0.110.0` | Asynchronous REST API framework |
-| **Uvicorn** | `^0.28.0` | ASGI web server implementation |
-| **PyTorch** (`torch`) | `^2.0.0` | Tensor computation & ML model inference |
-| **Transformers** | `^4.38.0` | Pre-trained Wav2Vec2 architecture weights |
-| **SoundFile** | `^0.12.1` | Audio reading and buffer processing |
-| **NumPy** | `^1.26.0` | Numerical array operations for audio signals |
-| **FFmpeg** | `ffmpeg.exe` (Root) | Audio sampling rate normalization (16kHz Mono) |
-
-### Frontend Dependencies
-The frontend is built with modern Web standards (located at `frontend/package.json`):
-
-| Technology | Specification | Purpose |
-| :--- | :--- | :--- |
-| **Framework** | React 18 + TypeScript | UI component structure & strict type safety |
-| **Build Tool** | Vite 8+ | Lightning-fast HMR and production bundle optimizer |
-| **Styling** | Tailwind CSS v4 | Utility-first styling & custom design tokens |
-| **Typography** | Space Grotesk, JetBrains Mono, General Sans | High-contrast technical blueprint aesthetic |
-
----
-
-## 📁 Project Directory Structure
-
 ```text
-voice-detector/
-├── backend/
-│   ├── main.py              # FastAPI application server & routes (/api/health, /api/analyze)
-│   └── requirements.txt     # Python backend dependencies
-├── frontend/
-│   ├── src/
-│   │   ├── components/      # Modular React UI components
-│   │   │   ├── Navbar.tsx
-│   │   │   ├── Hero.tsx
-│   │   │   ├── UploadZone.tsx
-│   │   │   ├── AudioPreview.tsx
-│   │   │   ├── AnalysisLoader.tsx
-│   │   │   ├── DetectionResult.tsx
-│   │   │   ├── ProbabilityMeter.tsx
-│   │   │   ├── SafetyRecommendation.tsx
-│   │   │   ├── HowItWorks.tsx
-│   │   │   ├── NetworkTopology.tsx
-│   │   │   ├── SystemBento.tsx
-│   │   │   └── Footer.tsx
-│   │   ├── services/
-│   │   │   └── api.ts       # Centralized API service & fetch handlers
-│   │   ├── types/
-│   │   │   └── index.ts     # TypeScript interfaces & API response contracts
-│   │   ├── App.tsx          # Main state manager
-│   │   ├── main.tsx         # React entrypoint
-│   │   └── index.css        # CSS variable tokens & global baseline
-│   ├── .env                 # Frontend environment variables (VITE_API_URL)
-│   ├── package.json         # Node.js dependencies & scripts
-│   └── vite.config.ts       # Vite bundler configuration
-├── convert_and_test.py      # Standalone CLI test script
-├── ffmpeg.exe               # Native FFmpeg binary for audio normalization
-├── pellav2_detector.pt      # Pre-trained Pellav2 model weights binary
-├── pellav2_infer.py         # PyTorch inference routine
-└── README.md                # Project documentation
+User
+↓
+React + TypeScript
+↓
+FastAPI
+↓
+Audio Validation
+↓
+FFmpeg
+↓
+16 kHz Mono WAV
+↓
+Pellav2
+↓
+p_fake
+↓
+Likely Real / Likely AI-Generated
+```
+
+### Data Pipeline Overview
+
+1. **User Interaction**: User selects or drops an audio file (`.mp3`, `.wav`, `.ogg`, `.flac`, `.m4a`) on the React + TypeScript frontend dashboard.
+2. **REST API Transmission**: Frontend posts binary file payload to `/api/analyze` on the FastAPI backend server.
+3. **Audio Validation & Preprocessing**: Backend enforces file format and size limits, then calls `FFmpeg` to convert audio to a standard **16 kHz mono 16-bit PCM WAV** stream.
+4. **Pellav2 Inference**: PyTorch loads hidden-state outputs from a **Wav2Vec2** backbone (`pellav2_detector.pt`) to compute synthetic speech probability $p_{\text{fake}} \in [0.0, 1.0]$.
+5. **Classification**: System returns structured classification label (`Likely Real` or `Likely AI-Generated`) and confidence score.
+
+---
+
+## ⚙️ Environment Variables
+
+The application is completely configurable via environment variables on both local setups and cloud hosting platforms like Render.
+
+| Variable | Scope | Default Value | Description |
+| :--- | :--- | :--- | :--- |
+| `FRONTEND_URL` | Backend | `http://localhost:5173` | Allowed CORS origin for incoming web requests |
+| `MODEL_PATH` | Backend | `../pellav2_detector.pt` | Path to PyTorch model weights file (`pellav2_detector.pt`) |
+| `FFMPEG_PATH` | Backend | `ffmpeg` | Path or executable name for FFmpeg (checks system `PATH`) |
+| `MAX_UPLOAD_SIZE_MB` | Backend | `25` | Maximum permitted file upload size in megabytes |
+| `VITE_API_URL` | Frontend | `http://127.0.0.1:8000` | Backend API base URL consumed by the Vite React app |
+
+### Configuration Templates
+
+- **Backend**: `backend/.env.example`
+  ```env
+  FRONTEND_URL=http://localhost:5173
+  MODEL_PATH=../pellav2_detector.pt
+  FFMPEG_PATH=ffmpeg
+  MAX_UPLOAD_SIZE_MB=25
+  ```
+
+- **Frontend**: `frontend/.env.example`
+  ```env
+  VITE_API_URL=http://127.0.0.1:8000
+  ```
+
+---
+
+## 🚀 Deployment Instructions for Render
+
+### Backend Web Service (Render)
+
+1. **Create New Web Service** on Render dashboard.
+2. Connect your GitHub repository.
+3. **Configure Service Settings**:
+   - **Service Type**: Web Service
+   - **Environment**: Python
+   - **Root Directory**: `backend`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+4. **Environment Variables**:
+   - Set `FRONTEND_URL` to your published frontend Render URL (e.g. `https://voiceguard-frontend.onrender.com`).
+   - Set `MODEL_PATH` to the location of `pellav2_detector.pt` (e.g. `/var/data/pellav2_detector.pt`).
+   - Set `FFMPEG_PATH` to `ffmpeg`.
+   - Set `MAX_UPLOAD_SIZE_MB` to `25`.
+
+---
+
+### Frontend Static Site (Render)
+
+1. **Create New Static Site** on Render dashboard.
+2. Connect your GitHub repository.
+3. **Configure Site Settings**:
+   - **Service Type**: Static Site
+   - **Root Directory**: `frontend`
+   - **Build Command**: `npm install && npm run build`
+   - **Publish Directory**: `dist`
+4. **Environment Variables**:
+   - Set `VITE_API_URL` to your backend Render URL (e.g. `https://voiceguard-backend.onrender.com`).
+
+---
+
+## 📦 Pellav2 Model Storage Requirement for Render
+
+The `pellav2_detector.pt` model file is **~1.26 GB**. Because git repositories should not store large binary artifacts (>100MB), the model is excluded from Git via `.gitignore`.
+
+### Recommended Strategies for Render:
+
+1. **Render Persistent Disk (Recommended for Dedicated/Standard instances)**:
+   - Attach a Persistent Disk mounted at `/var/data` in your Render Web Service settings.
+   - Upload `pellav2_detector.pt` directly to `/var/data/pellav2_detector.pt`.
+   - Set `MODEL_PATH=/var/data/pellav2_detector.pt`.
+
+2. **Cloud Storage / S3 / Hugging Face Direct Download**:
+   - Host `pellav2_detector.pt` on AWS S3, Cloudflare R2, or Hugging Face.
+   - Configure a pre-start script to download the model file to the container if not present before running `uvicorn`.
+
+---
+
+## 💻 Local Development Setup
+
+### Backend
+
+```bash
+cd backend
+python -m venv venv
+# Windows: .\venv\Scripts\activate | macOS/Linux: source venv/bin/activate
+pip install -r requirements.txt
+python -m uvicorn main:app --reload --port 8000
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
 ---
 
-## 🚀 Installation & Setup Guide
+## 🖼️ UI Snapshots Captured During Automated Testing
 
-Follow these step-by-step instructions to set up and run both backend and frontend environments locally.
+Below is the interface captured during local automated testing:
 
-### 1. Prerequisites
-Ensure you have the following installed on your machine:
-- **Python 3.10+** (`python --version`)
-- **Node.js 18+** (`node --version`) and **npm** (`npm --version`)
-- **Git**
+![VoiceGuard Landing Page UI](file:///C:/Users/HP/.gemini/antigravity/brain/dc8f3505-db08-478e-aed9-690b8e8e0a45/voiceguard_landing_page_1788526118042.png)
 
 ---
 
-### 2. Backend Setup & Server Execution
+## ⚖️ Probabilistic Detection Disclaimer
 
-1. **Navigate to the root directory**:
-   ```bash
-   cd voice-detector
-   ```
-
-2. **Create and activate a virtual environment**:
-   - **On Windows (PowerShell)**:
-     ```powershell
-     python -m venv venv
-     .\venv\Scripts\Activate.ps1
-     ```
-   - **On macOS / Linux**:
-     ```bash
-     python3 -m venv venv
-     source venv/bin/activate
-     ```
-
-3. **Install Backend Dependencies**:
-   ```bash
-   pip install -r backend/requirements.txt
-   ```
-
-4. **Start the FastAPI Backend Server**:
-   ```bash
-   cd backend
-   python -m uvicorn main:app --reload --port 8000
-   ```
-   > The API server will start on **`http://127.0.0.1:8000`**.  
-   > OpenAPI interactive documentation is available at `http://127.0.0.1:8000/docs`.
-
----
-
-### 3. Frontend Setup & Server Execution
-
-1. **Open a new terminal tab/window** and navigate to the `frontend` folder:
-   ```bash
-   cd voice-detector/frontend
-   ```
-
-2. **Install Node dependencies**:
-   ```bash
-   npm install
-   ```
-
-3. **Configure Environment Variables**:
-   Verify `.env` exists in `frontend/.env`:
-   ```env
-   VITE_API_URL=http://127.0.0.1:8000
-   ```
-
-4. **Run the Vite Development Server**:
-   ```bash
-   npm run dev
-   ```
-   > Open your browser and navigate to **`http://localhost:5173`**.
-
-5. **Build for Production** *(Optional)*:
-   ```bash
-   npm run build
-   ```
-
----
-
-## 🔌 API Reference
-
-### Health Check
-- **URL**: `/api/health`
-- **Method**: `GET`
-- **Response**:
-  ```json
-  {
-    "status": "operational",
-    "model": "pellav2",
-    "ffmpeg": true,
-    "model_file": true
-  }
-  ```
-
-### Analyze Audio Clip
-- **URL**: `/api/analyze`
-- **Method**: `POST`
-- **Content-Type**: `multipart/form-data`
-- **Parameters**: `file` (Binary audio data - `.mp3`, `.wav`, `.ogg`, `.flac`)
-- **Response Example**:
-  ```json
-  {
-    "filename": "executive_call.mp3",
-    "p_fake": 0.9842,
-    "classification": "likely_ai_generated",
-    "label": "Likely AI-Generated"
-  }
-  ```
-
----
-
-## 🎨 Design System & Aesthetics
-
-VoiceGuard adheres to a **Technical Minimalist** design language inspired by structural architectural blueprints and high-precision laboratory instruments:
-
-- **Color Palette**:
-  - `Paper` (`#F7F7F5`) — Background substrate
-  - `Forest` (`#1A3C2B`) — Primary brand element
-  - `Grid` (`#3A3A38`) — Hairline boundaries and text
-  - `Coral` (`#FF8C69`) — High-risk warning accent
-  - `Mint` (`#9EFFBF`) — Low-risk operational accent
-  - `Gold` (`#F4D35E`) — Metadata & status tag accent
-- **Borders & Radii**: Hairline 1px borders (`rgba(58,58,56,0.20)`), 0px to 2px sharp corners, zero box shadows, zero gradients, zero glassmorphism.
-- **Background**: Subtle SVG mosaic grid pattern providing continuous structural depth without distracting readability.
-
----
-
-## ⚖️ Detection Philosophy & Terminology
-
-Voice cloning detection is intrinsically **probabilistic**. VoiceGuard adheres strictly to accurate security reporting standards:
-
-- ✅ **Approved Terminology**:
-  - *"Likely Real"* ($p_{\text{fake}} < 0.5$)
-  - *"Likely AI-Generated"* ($p_{\text{fake}} \ge 0.5$)
-  - *"AI-generated probability"*
-  - *"Detection score"*
-- ❌ **Prohibited Claims**:
-  - *"100% Real"* / *"100% Fake"*
-  - *"Proof of AI"*
-  - *"Guaranteed detection"*
-
-> **Notice**: Detection scores should be evaluated as one parameter within a multi-factor verification policy. Always independently verify sensitive instructions through an out-of-band communication channel.
-
----
-
-## 📄 License
-
-This project is released under the [MIT License](LICENSE).
+Voice analysis returns a statistical likelihood score ($p_{\text{fake}}$) based on hidden-state neural representations. Detection results are probabilistic and must not be treated as absolute proof of caller identity.

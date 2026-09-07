@@ -1,0 +1,31 @@
+# Render Deployment Blueprint for VoiceGuard
+services:
+  # ── FastAPI Backend Service ──────────────────────────────────────────────
+  - type: web
+    name: voiceguard-backend
+    env: python
+    region: oregon
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: FRONTEND_URL
+        value: https://voiceguard-frontend.onrender.com
+      - key: MODEL_PATH
+        value: /var/data/pellav2_detector.pt
+      - key: FFMPEG_PATH
+        value: ffmpeg
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "25"
+
+  # ── React Vite Static Site ─────────────────────────────────────────────
+  - type: static
+    name: voiceguard-frontend
+    env: static
+    region: oregon
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://voiceguard-backend.onrender.com
