@@ -52,7 +52,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({ onFileSelect }) => {
         id="audio-upload"
         type="file"
         className="hidden"
-        accept=".mp3,.wav,.ogg,.flac,.m4a"
+        accept=".mp3,.wav,.ogg,.flac,.m4a,.aac,.webm,.weba,audio/webm"
         onChange={handleChange}
         tabIndex={-1}
       />
@@ -91,7 +91,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({ onFileSelect }) => {
         </div>
         <div>
           <div className="font-mono text-[10px] uppercase opacity-50 mb-1 tracking-wider">SUPPORTED FORMATS</div>
-          <div className="font-mono text-[11px]">MP3 / WAV</div>
+          <div className="font-mono text-[11px]">MP3 / WAV / OGG / FLAC<br/>M4A / AAC / WEBM / WEBA</div>
         </div>
       </div>
     </div>

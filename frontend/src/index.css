@@ -69,3 +69,23 @@
     font-family: var(--font-grotesk);
   }
 }
+
+/* ── WAVEFORM & LIVE PROTECTION ANIMATIONS ──────────────── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+@keyframes pulse-warning {
+  0%, 100% { border-color: #FF8C69; }
+  50% { border-color: rgba(255, 140, 105, 0.4); }
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-warning 2s ease-in-out infinite;
+}
