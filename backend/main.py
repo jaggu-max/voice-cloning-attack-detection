@@ -2,98 +2,95 @@
 VoiceGuard — FastAPI backend for Pellav2 voice cloning attack detection.
 
 Endpoints:
-  GET  /api/health   — system status
-  POST /api/analyze  — upload audio → FFmpeg preprocess → Pellav2 inference
+  GET  /api/health            — system status
+  GET  /api/session-token     — generate secure session token & QR URL
+  POST /api/analyze           — upload audio → shared pipeline → Pellav2 result
+  POST /api/live/analyze      — live 10s WebM chunk → shared pipeline (with live calibration)
+  POST /api/live/download-mp3 — convert segment to MP3
+  POST /api/live/download-full-mp3 — concatenate segments → MP3
+
+  WS   /ws/phone              — Phone Wi-Fi WebSocket audio stream & real-time telemetry
+  GET  /api/phone/status      — Phone Wi-Fi connection state & live telemetry counters
+  GET  /api/phone/latest-wav  — Download accumulated phone PCM as WAV file (Record & Test)
+  POST /api/phone/analyze-recording — Run Pellav2 detection on accumulated phone audio
+
+  GET  /api/usb/status        — USB bridge connection state
+  POST /api/usb/stream        — USB bridge audio ingestion
+  GET  /mobile                — Phone browser UI (served HTML)
+  GET  /api/local-ip          — Returns laptop LAN IP & dynamic HTTPS/HTTP mobile URL
 """
 
+import asyncio
+import json
+import logging
+import math
 import os
-import sys
 import shutil
+import socket
+import struct
 import subprocess
 import tempfile
-import logging
-from typing import List
+import time
+import uuid
+import wave as wavmod
 from pathlib import Path
+from typing import Dict, List, Optional
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Response
+import numpy as np
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
-# ── Paths & Config ────────────────────────────────────────────────────────
-PROJECT_DIR = Path(__file__).resolve().parent.parent   # voice-detector root
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
+# ── Config ─────────────────────────────────────────────────────────────────────
+PROJECT_DIR   = Path(__file__).resolve().parent.parent
+FRONTEND_URL  = os.getenv("FRONTEND_URL", "http://localhost:5173")
+MAX_SIZE_MB   = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))
+MOBILE_HTML   = Path(__file__).resolve().parent / "mobile.html"
 
-# Environment variables with cross-platform fallbacks
-FFMPEG_PATH_ENV = os.getenv("FFMPEG_PATH", "ffmpeg")
-MODEL_PATH_ENV  = os.getenv("MODEL_PATH", str(PROJECT_DIR / "pellav2_detector.pt"))
-FRONTEND_URL    = os.getenv("FRONTEND_URL", "http://localhost:5173")
-MAX_SIZE_MB     = int(os.getenv("MAX_UPLOAD_SIZE_MB", "25"))
-
-INFER_SCRIPT    = PROJECT_DIR / "pellav2_infer.py"
-MODEL_PATH      = Path(MODEL_PATH_ENV).resolve()
-
-
-def resolve_ffmpeg_binary() -> str | None:
-    """Find FFmpeg binary on system PATH or local project directory."""
-    # 1. Check if FFMPEG_PATH_ENV is directly executable or an existing file
-    if Path(FFMPEG_PATH_ENV).is_file():
-        return str(Path(FFMPEG_PATH_ENV).resolve())
-    
-    # 2. Check system PATH (works on Linux/Render when ffmpeg is installed via apt/package manager)
-    found_on_path = shutil.which(FFMPEG_PATH_ENV)
-    if found_on_path:
-        return found_on_path
-
-    # 3. Fallback check for local ffmpeg.exe or ffmpeg in root directory
-    for fallback_name in ["ffmpeg.exe", "ffmpeg"]:
-        candidate = PROJECT_DIR / fallback_name
-        if candidate.is_file():
-            return str(candidate)
-
-    return None
-
-
-ALLOWED_MIME = {
-    "audio/mpeg", "audio/mp3", "audio/wav", "audio/wave",
-    "audio/x-wav", "audio/vnd.wave", "audio/ogg", "audio/webm",
-    "audio/flac", "audio/x-flac", "application/octet-stream"
-}
 ALLOWED_EXT  = {".mp3", ".wav", ".ogg", ".flac", ".webm", ".weba", ".m4a", ".aac"}
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("voiceguard")
 
-# ── App ────────────────────────────────────────────────────────────────────
-app = FastAPI(title="VoiceGuard API", version="1.0.0")
-
-# CORS middleware
-origins = [
-    FRONTEND_URL,
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "*"
-]
+# ── App ────────────────────────────────────────────────────────────────────────
+app = FastAPI(title="VoiceGuard API", version="2.5.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origin_regex=".*",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
 @app.on_event("startup")
 async def startup_event():
-    log.info("Pre-warming Pellav2 PyTorch model into global memory...")
+    log.info("Pre-warming Pellav2 model...")
     try:
-        get_pellav2_model()
+        from audio_pipeline import get_model
+        get_model()
     except Exception as e:
-        log.error("Failed to pre-warm model on startup: %s", e)
+        log.error("Model pre-warm failed: %s", e)
 
 
-# ── Response models ────────────────────────────────────────────────────────
+# ── FFmpeg helper ──────────────────────────────────────────────────────────────
+def resolve_ffmpeg() -> Optional[str]:
+    env = os.getenv("FFMPEG_PATH", "ffmpeg")
+    if Path(env).is_file():
+        return str(Path(env).resolve())
+    found = shutil.which(env)
+    if found:
+        return found
+    for name in ("ffmpeg.exe", "ffmpeg"):
+        c = PROJECT_DIR / name
+        if c.is_file():
+            return str(c)
+    return None
+
+
+# ── Response models ────────────────────────────────────────────────────────────
 class HealthResponse(BaseModel):
     status: str
     model: str
@@ -110,7 +107,10 @@ class AnalysisResponse(BaseModel):
     average_probability: float
     duration: float
     windows_analyzed: int
+    windows_speech: int
     processing_time: float
+    audio_quality: str
+    confidence: float
 
 
 class LiveAnalysisResponse(BaseModel):
@@ -121,229 +121,162 @@ class LiveAnalysisResponse(BaseModel):
     risk_level: str
     model: str
     windows_analyzed: int
+    windows_speech: int
+    confidence: float
 
 
-# ── Routes ────────────────────────────────────────────────────────────────
+class PhoneTelemetry(BaseModel):
+    state: str           # disconnected | connected | mic_ready | streaming | stopped
+    client_count: int
+    frames: int
+    bytes: int
+    level: int
+    duration_s: float
+    token: Optional[str] = None
+
+
+class UsbStatusResponse(BaseModel):
+    state: str         # disconnected | connected | streaming
+    last_audio_ts: Optional[float] = None
+
+
+# ── State management ──────────────────────────────────────────────────────────
+# Active WebSockets: 'phone_clients' (mobile browsers) and 'laptop_clients' (UI subscribers)
+_phone_ws: Dict[str, WebSocket] = {}
+_laptop_ws: Dict[str, WebSocket] = {}
+
+# Session tokens mapping token → metadata
+_session_tokens: Dict[str, dict] = {}
+
+# Active phone telemetry data
+_phone_telemetry = {
+    "state": "disconnected",
+    "client_count": 0,
+    "frames": 0,
+    "bytes": 0,
+    "level": 0,
+    "start_time": 0.0,
+    "duration_s": 0.0,
+    "token": None,
+}
+
+# Buffer for accumulating raw PCM audio for Record & Test
+_phone_pcm_buffer = bytearray()
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def get_lan_ip() -> str:
+    """Returns the laptop's primary LAN IP address."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+async def broadcast_telemetry():
+    """Send current telemetry update to all connected laptop clients."""
+    dur = time.time() - _phone_telemetry["start_time"] if _phone_telemetry["state"] == "streaming" else _phone_telemetry["duration_s"]
+    payload = {
+        "type": "TELEMETRY",
+        "state": _phone_telemetry["state"],
+        "client_count": len(_phone_ws),
+        "frames": _phone_telemetry["frames"],
+        "bytes": _phone_telemetry["bytes"],
+        "level": _phone_telemetry["level"],
+        "duration_s": round(dur, 1),
+        "token": _phone_telemetry["token"],
+    }
+    dead = []
+    for cid, ws in _laptop_ws.items():
+        try:
+            await ws.send_text(json.dumps(payload))
+        except Exception:
+            dead.append(cid)
+    for cid in dead:
+        _laptop_ws.pop(cid, None)
+
+
+# ── Routes: Health & Config ────────────────────────────────────────────────────
 @app.get("/api/health", response_model=HealthResponse)
 def health():
-    ffmpeg_bin = resolve_ffmpeg_binary()
+    model_path = Path(os.getenv("MODEL_PATH", str(PROJECT_DIR / "pellav2_detector.pt"))).resolve()
     return {
         "status": "operational",
         "model": "pellav2",
-        "ffmpeg": ffmpeg_bin is not None,
-        "model_file": MODEL_PATH.exists(),
+        "ffmpeg": resolve_ffmpeg() is not None,
+        "model_file": model_path.exists(),
     }
 
 
-import time
-import glob
-import numpy as np
-import soundfile as sf
-import torch
+@app.get("/api/local-ip")
+def get_local_ip():
+    """Returns the laptop's current LAN IP & dynamic HTTPS/HTTP URL."""
+    ip = get_lan_ip()
+    port = int(os.getenv("HTTPS_PORT", "8443"))
+    scheme = "https"
+    token = str(uuid.uuid4())[:8]
 
-GLOBAL_MODEL = None
-GLOBAL_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-def get_pellav2_model():
-    global GLOBAL_MODEL
-    if GLOBAL_MODEL is None:
-        log.info("Loading Pellav2 model into memory on device: %s...", GLOBAL_DEVICE)
-        from pellav2_infer import Detector
-        model = Detector().to(GLOBAL_DEVICE)
-        model.load_state_dict(torch.load(MODEL_PATH, map_location=GLOBAL_DEVICE))
-        model.eval()
-        GLOBAL_MODEL = model
-        log.info("Pellav2 model successfully loaded into RAM!")
-    return GLOBAL_MODEL
+    return {
+        "ip": ip,
+        "port": port,
+        "scheme": scheme,
+        "token": token,
+        "mobile_url": f"{scheme}://{ip}:{port}/mobile?token={token}",
+    }
 
 
-def calibrate_webm_opus_score(raw_p: float) -> float:
-    """
-    Calibrate raw Wav2Vec2/Pellav2 probability scores for WebM/Opus microphone streams recorded in browsers.
-    Browser WebM Opus compression introduces spectral quantization artifacts that artificially shift
-    raw neural probabilities upward by 35-40% on real human microphone speech.
-    
-    Curve mapping:
-    - Raw score <= 0.72 (typical real human speech on browser microphone):
-      Calibrated = (raw_p / 0.72) ** 3.0 * 0.25 -> Maps ~0.58 raw score to ~0.13 (13% AI Risk -> REAL VOICE)
-    - Raw score > 0.72 (true AI deepfake/clone speech):
-      Calibrated = 0.25 + ((raw_p - 0.72) / 0.28) * 0.74 -> Preserves high AI risk (75%-99% AI Risk -> FAKE)
-    """
-    if raw_p <= 0.72:
-        calibrated = ((raw_p / 0.72) ** 3.0) * 0.25
-    else:
-        calibrated = 0.25 + ((raw_p - 0.72) / 0.28) * 0.74
-    return float(max(0.01, min(0.99, calibrated)))
+@app.get("/api/session-token")
+def get_session_token():
+    """Generate session token for QR code."""
+    token = str(uuid.uuid4())
+    _session_tokens[token] = {"created_at": time.time()}
+    ip = get_lan_ip()
+    port = int(os.getenv("HTTPS_PORT", "8443"))
+    scheme = "https"
+
+    return {
+        "token": token,
+        "mobile_url": f"{scheme}://{ip}:{port}/mobile?token={token}",
+    }
 
 
-def run_in_memory_inference(chunk_paths: List[str]) -> List[float]:
-    model = get_pellav2_model()
-    p_fakes = []
-    
-    SR = 16000
-    CROP = 4 * SR
-    
-    with torch.no_grad():
-        tensors = []
-        tensor_indices = []
-        
-        for idx, path in enumerate(chunk_paths):
-            try:
-                wav, sr = sf.read(path, dtype="float32")
-            except Exception as e:
-                log.warning("Could not read chunk %s: %s", path, e)
-                p_fakes.append(0.05)
-                continue
-                
-            if wav.ndim > 1:
-                wav = wav.mean(axis=1)
-                
-            # Silence, low-energy room noise & zero-variance check
-            std_dev = float(wav.std()) if len(wav) > 0 else 0.0
-            rms = float(np.sqrt(np.mean(wav**2))) if len(wav) > 0 else 0.0
-            
-            # Guard: If window is silence, breath pause, room background noise (RMS < 0.005 or std_dev < 0.0003)
-            # treat as Real (0.05) to prevent spurious high fake scores on empty microphone frames
-            if rms < 0.005 or std_dev < 0.0003:
-                p_fakes.append(0.05)
-                continue
-                
-            if len(wav) >= CROP:
-                off = (len(wav) - CROP) // 2
-                wav = wav[off : off + CROP]
-            else:
-                wav = np.pad(wav, (0, CROP - len(wav)))
-                
-            norm_wav = (wav - wav.mean()) / (std_dev + 1e-7)
-            tensor = torch.from_numpy(norm_wav).float()
-            tensors.append(tensor)
-            tensor_indices.append(idx)
-            # Placeholder slot
-            p_fakes.append(0.05)
-            
-        if tensors:
-            batch = torch.stack(tensors).to(GLOBAL_DEVICE)
-            logits = model(batch)
-            probs = torch.sigmoid(logits)
-            if probs.ndim == 0:
-                probs_list = [probs.item()]
-            else:
-                probs_list = probs.tolist()
-                
-            for orig_idx, prob_val in zip(tensor_indices, probs_list):
-                calibrated_val = calibrate_webm_opus_score(float(prob_val))
-                p_fakes[orig_idx] = float(calibrated_val)
-                
-    return p_fakes
-
-
-async def _run_chunked_inference(audio_bytes: bytes, filename: str, ext: str):
-    start_t = time.time()
-    ffmpeg_bin = resolve_ffmpeg_binary()
-    if not ffmpeg_bin:
-        raise HTTPException(status_code=503, detail="FFmpeg binary not found.")
-    if not MODEL_PATH.exists():
-        raise HTTPException(status_code=503, detail="Pellav2 model file not found.")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        in_path  = os.path.join(tmp, f"input{ext}")
-        with open(in_path, "wb") as f:
-            f.write(audio_bytes)
-
-        # Preprocess with 80Hz-7.5kHz human voice bandpass filter to clean microphone hum and high-freq noise
-        full_wav = os.path.join(tmp, "clean_voice.wav")
-        ffmpeg_cmd_convert = [
-            ffmpeg_bin, "-y",
-            "-i", in_path,
-            "-af", "highpass=f=80,lowpass=f=7500",
-            "-ar", "16000",
-            "-ac", "1",
-            "-sample_fmt", "s16",
-            full_wav
-        ]
-        ff_conv = subprocess.run(ffmpeg_cmd_convert, capture_output=True, text=True)
-        if ff_conv.returncode != 0:
-            log.warning("Voice bandpass filter failed, falling back to direct input: %s", ff_conv.stderr)
-            full_wav = in_path
-
-        log.info("FFmpeg: chunking %s → 16kHz mono WAV 4s windows", filename)
-        ffmpeg_cmd = [
-            ffmpeg_bin, "-y",
-            "-i", full_wav,
-            "-ar", "16000",
-            "-ac", "1",
-            "-sample_fmt", "s16",
-            "-f", "segment",
-            "-segment_time", "4",
-            os.path.join(tmp, "out%03d.wav")
-        ]
-        ff = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
-        if ff.returncode != 0:
-            log.error("FFmpeg error: %s", ff.stderr)
-            raise HTTPException(
-                status_code=422,
-                detail="FFmpeg could not process this audio segment.",
-            )
-
-        chunks = sorted(glob.glob(os.path.join(tmp, "out*.wav")))
-        if not chunks:
-            raise HTTPException(status_code=422, detail="Audio too short to produce any windows.")
-
-        log.info("Pellav2 in-memory: running fast tensor inference on %d windows", len(chunks))
-        p_fakes = run_in_memory_inference(chunks)
-
-        if not p_fakes:
-            raise HTTPException(status_code=500, detail="Could not compute inference for any chunk.")
-
-        processing_time = time.time() - start_t
-        log.info("Finished inference in %.2f seconds!", processing_time)
-        return p_fakes, processing_time
-
-
+# ── Routes: File Analysis & Live ──────────────────────────────────────────────
 @app.post("/api/analyze", response_model=AnalysisResponse)
 async def analyze(file: UploadFile = File(...)):
-    # ── validation ────────────────────────────────────────────────────────
+    """Analyze uploaded audio file through shared pipeline (raw model output, uncalibrated)."""
     filename = file.filename or "upload"
     ext = Path(filename).suffix.lower()
 
     if ext not in ALLOWED_EXT:
-        raise HTTPException(
-            status_code=415,
-            detail=f"Unsupported file type '{ext}'. Accepted: MP3, WAV, OGG, FLAC, M4A, AAC, WEBM, WEBA.",
-        )
+        raise HTTPException(status_code=415, detail=f"Unsupported file type '{ext}'.")
 
     audio_bytes = await file.read()
-    size_mb = len(audio_bytes) / (1024 * 1024)
-    if size_mb > MAX_SIZE_MB:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File exceeds {MAX_SIZE_MB} MB limit ({size_mb:.1f} MB received).",
-        )
+    if len(audio_bytes) / (1024 * 1024) > MAX_SIZE_MB:
+        raise HTTPException(status_code=413, detail=f"File exceeds {MAX_SIZE_MB} MB limit.")
 
-    p_fakes, proc_time = await _run_chunked_inference(audio_bytes, filename, ext)
-    
-    # Calculate active vocal speech average (ignoring background silence frames set to 0.05)
-    speech_windows = [p for p in p_fakes if p > 0.05]
-    if speech_windows:
-        mean_p_fake = sum(speech_windows) / len(speech_windows)
-    else:
-        mean_p_fake = sum(p_fakes) / len(p_fakes)
-        
-    max_p_fake = max(p_fakes)
+    from audio_pipeline import analyze_audio_bytes
+    result, proc_time = analyze_audio_bytes(audio_bytes, ext, filename=filename, is_live=False)
 
-    classification = "likely_ai_generated" if mean_p_fake >= 0.55 else "likely_real"
-    label          = "Likely AI-Generated"  if mean_p_fake >= 0.55 else "Likely Real"
+    speech_pf = [w.p_fake for w in result.window_results if w.is_speech]
+    highest = max(speech_pf) if speech_pf else 0.0
 
     return AnalysisResponse(
         filename=filename,
-        p_fake=round(mean_p_fake, 4),
-        classification=classification,
-        label=label,
-        highest_probability=round(max_p_fake, 4),
-        average_probability=round(mean_p_fake, 4),
-        duration=4.0 * len(p_fakes),
-        windows_analyzed=len(p_fakes),
-        processing_time=round(proc_time, 2)
+        p_fake=result.p_fake,
+        classification=result.classification,
+        label=result.label,
+        highest_probability=round(highest, 4),
+        average_probability=result.p_fake,
+        duration=round(result.duration_s, 2),
+        windows_analyzed=result.windows_total,
+        windows_speech=result.windows_speech,
+        processing_time=round(proc_time, 2),
+        audio_quality=result.audio_quality,
+        confidence=result.confidence,
     )
 
 
@@ -351,221 +284,391 @@ async def analyze(file: UploadFile = File(...)):
 async def analyze_live(
     audio: UploadFile = File(...),
     window_start: int = Form(0),
-    window_end: int = Form(0)
+    window_end: int = Form(0),
 ):
-    import glob
-    import wave
-    
-    filename = audio.filename or "upload"
+    """Analyze a live 10s audio chunk with live codec calibration applied."""
+    filename = audio.filename or "live_segment.webm"
     ext = Path(filename).suffix.lower()
-    content_type = audio.content_type
-
-    print(f"\n--- [DEBUG] LIVE PROTECTION PIPELINE ---")
-    print(f"[DEBUG] Input MIME type: {content_type}")
-    print(f"[DEBUG] Input extension: {ext}")
-
-    if ext not in ALLOWED_EXT:
-        raise HTTPException(
-            status_code=415,
-            detail=f"Unsupported file type '{ext}'. Accepted: MP3, WAV, OGG, FLAC, M4A, AAC, WEBM, WEBA.",
-        )
-
     audio_bytes = await audio.read()
-    
-    ffmpeg_bin = resolve_ffmpeg_binary()
-    if not ffmpeg_bin:
-        raise HTTPException(status_code=503, detail="FFmpeg binary not found.")
-    if not MODEL_PATH.exists():
-        raise HTTPException(status_code=503, detail="Pellav2 model file not found.")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        in_path  = os.path.join(tmp, f"input{ext}")
-        with open(in_path, "wb") as f:
-            f.write(audio_bytes)
+    from audio_pipeline import analyze_audio_bytes
+    result, _ = analyze_audio_bytes(audio_bytes, ext, filename=filename, is_live=True)
 
-        # 1. Convert to 10s total Valid WAV with Voice Bandpass Filter (80Hz - 7.5kHz)
-        full_wav_path = os.path.join(tmp, "full.wav")
-        ffmpeg_cmd_convert = [
-            ffmpeg_bin, "-y",
-            "-i", in_path,
-            "-af", "highpass=f=80,lowpass=f=7500",
-            "-ar", "16000",
-            "-ac", "1",
-            "-sample_fmt", "s16",
-            full_wav_path
-        ]
-        ff = subprocess.run(ffmpeg_cmd_convert, capture_output=True, text=True)
-        if ff.returncode != 0:
-            log.error("FFmpeg convert error: %s", ff.stderr)
-            raise HTTPException(status_code=422, detail="FFmpeg could not process this audio segment.")
-
-        print(f"[DEBUG] Converted WAV path: {full_wav_path}")
-
-        # 2. Validate WAV and calculate RMS, StdDev, and Silence Ratio (Zero-Padding Guard)
-        import numpy as np
-        with wave.open(full_wav_path, 'rb') as w:
-            n_channels = w.getnchannels()
-            sample_rate = w.getframerate()
-            n_frames = w.getnframes()
-            duration = n_frames / float(sample_rate)
-            raw_bytes = w.readframes(n_frames)
-            
-            samples = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-            rms = float(np.sqrt(np.mean(samples**2))) if len(samples) > 0 else 0.0
-            std_dev = float(np.std(samples)) if len(samples) > 0 else 0.0
-            silence_ratio = float(np.mean(np.abs(samples) < 1e-4)) if len(samples) > 0 else 1.0
-            
-            print(f"[DEBUG] SR: {sample_rate}Hz | Duration: {duration:.2f}s | RMS: {rms:.5f} | StdDev: {std_dev:.5f} | Silence: {silence_ratio:.1%}")
-
-        # Guard: If audio is short (<0.5s), flat signal (StdDev < 0.0001), room silence (RMS < 0.005),
-        # or heavily zero-padded (> 50% silence ratio) -> treat as Real (p_fake = 0.05)
-        if duration < 0.5 or rms < 0.005 or std_dev < 0.0001 or silence_ratio > 0.50:
-            print(f"[DEBUG] Zero-padding / silence guard triggered (duration={duration:.2f}s, silence_ratio={silence_ratio:.1%}). Setting p_fake=0.05")
-            mean_p_fake = 0.05
-            p_fakes = [0.05]
-        else:
-            # 3. Chunk into valid Pellav2 Windows
-            ffmpeg_cmd_chunk = [
-                ffmpeg_bin, "-y",
-                "-i", full_wav_path,
-                "-f", "segment",
-                "-segment_time", "4",
-                os.path.join(tmp, "out%03d.wav")
-            ]
-            ff_chunk = subprocess.run(ffmpeg_cmd_chunk, capture_output=True, text=True)
-            if ff_chunk.returncode != 0:
-                raise HTTPException(status_code=422, detail="FFmpeg could not chunk audio.")
-
-            chunks = sorted(glob.glob(os.path.join(tmp, "out*.wav")))
-            if not chunks:
-                raise HTTPException(status_code=422, detail="Audio too short to produce any windows.")
-                
-            print(f"[DEBUG] Each Pellav2 window paths: {chunks}")
-
-            # 4. In-Memory Fast Tensor Inference
-            p_fakes = run_in_memory_inference(chunks)
-            if not p_fakes:
-                raise HTTPException(status_code=500, detail="Could not parse Pellav2 output for any chunk.")
-
-            mean_p_fake = sum(p_fakes) / len(p_fakes)
-            print(f"[DEBUG] Final aggregated p_fake (MEAN): {mean_p_fake}")
-            print(f"--- [END DEBUG] ---")
-
-    if mean_p_fake >= 0.70:
-        classification = "likely_ai_generated"
-        risk_level = "high"
-    elif mean_p_fake >= 0.55:
-        classification = "suspicious"
-        risk_level = "medium"
-    else:
-        classification = "likely_real"
-        risk_level = "low"
+    risk_level = "high" if result.classification == "likely_ai_generated" else (
+        "medium" if result.classification == "suspicious" else "low"
+    )
 
     return LiveAnalysisResponse(
         window_start=window_start,
         window_end=window_end,
-        p_fake=round(mean_p_fake, 4),
-        classification=classification,
+        p_fake=result.p_fake,
+        classification=result.classification,
         risk_level=risk_level,
         model="pellav2",
-        windows_analyzed=len(p_fakes)
+        windows_analyzed=result.windows_total,
+        windows_speech=result.windows_speech,
+        confidence=result.confidence,
     )
 
 
+# ── Routes: MP3 Exports ───────────────────────────────────────────────────────
 @app.post("/api/live/download-mp3")
 async def download_mp3(audio: UploadFile = File(...)):
     audio_bytes = await audio.read()
-    ffmpeg_bin = resolve_ffmpeg_binary()
+    ffmpeg_bin = resolve_ffmpeg()
     if not ffmpeg_bin:
-        raise HTTPException(status_code=503, detail="FFmpeg binary not found.")
-    
+        raise HTTPException(status_code=503, detail="FFmpeg not found.")
+
     with tempfile.TemporaryDirectory() as tmp:
-        in_path = os.path.join(tmp, "input.webm")
+        in_path  = os.path.join(tmp, "input.webm")
         out_path = os.path.join(tmp, "segment.mp3")
         with open(in_path, "wb") as f:
             f.write(audio_bytes)
-            
-        ffmpeg_cmd = [
-            ffmpeg_bin, "-y",
-            "-i", in_path,
-            "-codec:a", "libmp3lame",
-            "-qscale:a", "2",
-            out_path
-        ]
-        res = subprocess.run(ffmpeg_cmd, capture_output=True)
+        res = subprocess.run(
+            [ffmpeg_bin, "-y", "-i", in_path, "-codec:a", "libmp3lame", "-qscale:a", "2", out_path],
+            capture_output=True,
+        )
         if res.returncode != 0 or not os.path.exists(out_path):
-            log.error("FFmpeg MP3 conversion failed: %s", res.stderr)
-            raise HTTPException(status_code=422, detail="Failed to convert audio segment to MP3.")
-            
+            raise HTTPException(status_code=422, detail="MP3 conversion failed.")
         with open(out_path, "rb") as f:
             mp3_bytes = f.read()
-            
+
     return Response(
         content=mp3_bytes,
         media_type="audio/mpeg",
-        headers={
-            "Content-Disposition": "attachment; filename=voiceguard-live-segment.mp3",
-            "Access-Control-Expose-Headers": "Content-Disposition"
-        }
+        headers={"Content-Disposition": "attachment; filename=voiceguard-segment.mp3"},
     )
 
 
 @app.post("/api/live/download-full-mp3")
 async def download_full_mp3(files: List[UploadFile] = File(...)):
-    ffmpeg_bin = resolve_ffmpeg_binary()
-    if not ffmpeg_bin:
-        raise HTTPException(status_code=503, detail="FFmpeg binary not found.")
-    
-    if not files:
-        raise HTTPException(status_code=400, detail="No audio segments provided.")
-        
+    ffmpeg_bin = resolve_ffmpeg()
+    if not ffmpeg_bin or not files:
+        raise HTTPException(status_code=400, detail="Invalid request or FFmpeg missing.")
+
     with tempfile.TemporaryDirectory() as tmp:
-        file_list_path = os.path.join(tmp, "concat.txt")
-        out_path = os.path.join(tmp, "full_session.mp3")
-        
-        manifest_lines = []
-        for idx, upload_file in enumerate(files):
-            part_filename = f"part_{idx:03d}.webm"
-            part_path = os.path.join(tmp, part_filename)
-            content = await upload_file.read()
+        manifest = []
+        for idx, uf in enumerate(files):
+            part_path = os.path.join(tmp, f"part_{idx:03d}.webm")
+            content = await uf.read()
             with open(part_path, "wb") as f:
                 f.write(content)
-            manifest_lines.append(f"file '{part_filename}'\n")
-            
-        with open(file_list_path, "w", encoding="utf-8") as f:
-            f.writelines(manifest_lines)
-            
-        ffmpeg_cmd = [
-            ffmpeg_bin, "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", file_list_path,
-            "-codec:a", "libmp3lame",
-            "-qscale:a", "2",
-            out_path
-        ]
-        res = subprocess.run(ffmpeg_cmd, capture_output=True)
+            manifest.append(f"file '{os.path.basename(part_path)}'\n")
+
+        list_path = os.path.join(tmp, "concat.txt")
+        out_path  = os.path.join(tmp, "full_session.mp3")
+        with open(list_path, "w") as f:
+            f.writelines(manifest)
+
+        res = subprocess.run(
+            [ffmpeg_bin, "-y", "-f", "concat", "-safe", "0", "-i", list_path,
+             "-codec:a", "libmp3lame", "-qscale:a", "2", out_path],
+            capture_output=True,
+        )
         if res.returncode != 0 or not os.path.exists(out_path):
-            log.error("FFmpeg full session MP3 concat failed: %s", res.stderr)
-            raise HTTPException(status_code=422, detail="Failed to concatenate audio segments into MP3.")
-            
+            raise HTTPException(status_code=422, detail="MP3 concatenation failed.")
         with open(out_path, "rb") as f:
             mp3_bytes = f.read()
-            
+
     return Response(
         content=mp3_bytes,
         media_type="audio/mpeg",
-        headers={
-            "Content-Disposition": "attachment; filename=voiceguard-full-session-recording.mp3",
-            "Access-Control-Expose-Headers": "Content-Disposition"
-        }
+        headers={"Content-Disposition": "attachment; filename=voiceguard-full-session.mp3"},
     )
 
 
-def _parse_p_fake(output: str) -> float | None:
-    """Extract the numeric p_fake value from Pellav2's stdout line."""
-    import re
-    match = re.search(r"p_fake=([0-9]+\.[0-9]+)", output)
-    if match:
-        return float(match.group(1))
-    return None
+# ── Phone Wi-Fi — WebSocket Endpoint & Status ────────────────────────────────
+@app.get("/api/phone/status", response_model=PhoneTelemetry)
+def phone_status():
+    dur = time.time() - _phone_telemetry["start_time"] if _phone_telemetry["state"] == "streaming" else _phone_telemetry["duration_s"]
+    return PhoneTelemetry(
+        state=_phone_telemetry["state"],
+        client_count=len(_phone_ws),
+        frames=_phone_telemetry["frames"],
+        bytes=_phone_telemetry["bytes"],
+        level=_phone_telemetry["level"],
+        duration_s=round(dur, 1),
+        token=_phone_telemetry["token"],
+    )
+
+
+@app.websocket("/ws/phone")
+async def phone_websocket(
+    ws: WebSocket,
+    token: Optional[str] = Query(None),
+    role: Optional[str] = Query("phone"),
+):
+    """
+    WebSocket endpoint for Phone Wi-Fi streaming.
+    Supports role='phone' (audio publisher) and role='laptop' (telemetry subscriber).
+    """
+    await ws.accept()
+    client_id = str(uuid.uuid4())
+
+    if role == "laptop":
+        _laptop_ws[client_id] = ws
+        log.info("Laptop telemetry subscriber connected: %s", client_id)
+        await broadcast_telemetry()
+        try:
+            while True:
+                msg = await ws.receive_text()
+                # Laptop can request telemetry ping
+        except WebSocketDisconnect:
+            _laptop_ws.pop(client_id, None)
+        return
+
+    # Role is phone
+    _phone_ws[client_id] = ws
+    _phone_telemetry["client_count"] = len(_phone_ws)
+    _phone_telemetry["state"] = "connected"
+    if token:
+        _phone_telemetry["token"] = token
+
+    log.info("Phone client connected: %s (token=%s)", client_id, token)
+    await ws.send_text(json.dumps({"type": "ACK", "clientId": client_id, "state": "connected"}))
+    await broadcast_telemetry()
+
+    WINDOW_BYTES = 16000 * 2 * 10  # 10s of 16kHz Int16 LE audio (320,000 bytes)
+    live_window_pcm = bytearray()
+
+    try:
+        while True:
+            try:
+                msg = await asyncio.wait_for(ws.receive(), timeout=30.0)
+            except asyncio.TimeoutError:
+                await ws.send_text(json.dumps({"type": "PING"}))
+                continue
+
+            if "text" in msg:
+                data = json.loads(msg["text"])
+                msg_type = data.get("type", "")
+
+                if msg_type == "MIC_READY":
+                    _phone_telemetry["state"] = "mic_ready"
+                    await ws.send_text(json.dumps({"type": "STATUS", "state": "mic_ready"}))
+                    await broadcast_telemetry()
+
+                elif msg_type == "START":
+                    _phone_telemetry["state"] = "streaming"
+                    _phone_telemetry["frames"] = 0
+                    _phone_telemetry["bytes"] = 0
+                    _phone_telemetry["level"] = 0
+                    _phone_telemetry["start_time"] = time.time()
+                    _phone_pcm_buffer.clear()
+                    live_window_pcm.clear()
+                    await ws.send_text(json.dumps({"type": "STATUS", "state": "streaming"}))
+                    await broadcast_telemetry()
+
+                elif msg_type == "STOP":
+                    dur = time.time() - _phone_telemetry["start_time"] if _phone_telemetry["start_time"] > 0 else 0
+                    _phone_telemetry["duration_s"] = round(dur, 1)
+                    _phone_telemetry["state"] = "stopped"
+                    await ws.send_text(json.dumps({"type": "STATUS", "state": "stopped"}))
+                    await broadcast_telemetry()
+
+                    # Analyze whatever audio was recorded during this session
+                    if len(_phone_pcm_buffer) >= 16000 * 2 * 2:  # at least 2s
+                        asyncio.create_task(_analyze_phone_pcm(bytes(_phone_pcm_buffer), ws))
+
+                elif msg_type == "HEARTBEAT":
+                    await ws.send_text(json.dumps({"type": "PONG"}))
+
+            elif "bytes" in msg:
+                # Real 16-bit Int16 LE PCM frames from phone microphone
+                pcm_chunk = msg["bytes"]
+                _phone_pcm_buffer.extend(pcm_chunk)
+                live_window_pcm.extend(pcm_chunk)
+
+                # Real telemetry metrics
+                _phone_telemetry["frames"] += 1
+                _phone_telemetry["bytes"] += len(pcm_chunk)
+
+                # Calculate real RMS audio level
+                samples = np.frombuffer(pcm_chunk, dtype=np.int16).astype(np.float32) / 32768.0
+                if len(samples) > 0:
+                    rms = float(np.sqrt(np.mean(samples ** 2)))
+                    _phone_telemetry["level"] = min(100, int(rms * 400))
+
+                await broadcast_telemetry()
+
+                # When accumulated live window >= 10s, analyze window
+                if len(live_window_pcm) >= WINDOW_BYTES:
+                    chunk_to_analyze = bytes(live_window_pcm[:WINDOW_BYTES])
+                    live_window_pcm = live_window_pcm[WINDOW_BYTES // 2:]  # 50% overlap
+                    asyncio.create_task(_analyze_phone_pcm(chunk_to_analyze, ws))
+
+    except WebSocketDisconnect:
+        log.info("Phone client disconnected: %s", client_id)
+    except Exception as e:
+        log.error("Phone WebSocket error: %s", e)
+    finally:
+        _phone_ws.pop(client_id, None)
+        _phone_telemetry["client_count"] = len(_phone_ws)
+        if len(_phone_ws) == 0:
+            _phone_telemetry["state"] = "disconnected"
+        await broadcast_telemetry()
+
+
+async def _analyze_phone_pcm(pcm_bytes: bytes, ws: WebSocket):
+    """Convert raw PCM bytes to WAV and analyze through shared pipeline."""
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+            wav_path = tf.name
+
+        with wavmod.open(wav_path, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(pcm_bytes)
+
+        with open(wav_path, "rb") as f:
+            wav_bytes = f.read()
+        os.unlink(wav_path)
+
+        from audio_pipeline import analyze_audio_bytes
+        result, _ = analyze_audio_bytes(wav_bytes, ".wav", filename="phone_stream.wav", is_live=True)
+
+        risk_level = "high" if result.classification == "likely_ai_generated" else (
+            "medium" if result.classification == "suspicious" else "low"
+        )
+
+        resp = {
+            "type": "RESULT",
+            "classification": result.classification,
+            "label": result.label,
+            "p_fake": result.p_fake,
+            "confidence": result.confidence,
+            "risk_level": risk_level,
+            "windows_analyzed": result.windows_total,
+            "windows_speech": result.windows_speech,
+            "audio_quality": result.audio_quality,
+        }
+
+        # Send to phone
+        try:
+            await ws.send_text(json.dumps(resp))
+        except Exception:
+            pass
+
+        # Broadcast to laptop subscribers
+        for lws in list(_laptop_ws.values()):
+            try:
+                await lws.send_text(json.dumps(resp))
+            except Exception:
+                pass
+
+    except Exception as e:
+        log.error("Phone PCM analysis error: %s", e)
+
+
+# ── Routes: Record & Test Integration for Phone Audio ───────────────────────
+@app.get("/api/phone/latest-wav")
+def download_latest_phone_wav():
+    """Download the accumulated phone PCM buffer as a 16kHz mono WAV file."""
+    if len(_phone_pcm_buffer) == 0:
+        raise HTTPException(status_code=404, detail="No phone audio recorded yet.")
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+        wav_path = tf.name
+
+    with wavmod.open(wav_path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(bytes(_phone_pcm_buffer))
+
+    with open(wav_path, "rb") as f:
+        wav_bytes = f.read()
+    os.unlink(wav_path)
+
+    return Response(
+        content=wav_bytes,
+        media_type="audio/wav",
+        headers={"Content-Disposition": "attachment; filename=voiceguard-phone-recording.wav"},
+    )
+
+
+@app.post("/api/phone/analyze-recording", response_model=AnalysisResponse)
+def analyze_phone_recording():
+    """Run Pellav2 detection on the recorded phone PCM buffer (Record & Test mode)."""
+    if len(_phone_pcm_buffer) < 16000 * 2 * 1:  # min 1 second
+        raise HTTPException(status_code=400, detail="Recorded phone audio is too short (min 1 second).")
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+        wav_path = tf.name
+
+    with wavmod.open(wav_path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(bytes(_phone_pcm_buffer))
+
+    with open(wav_path, "rb") as f:
+        wav_bytes = f.read()
+    os.unlink(wav_path)
+
+    from audio_pipeline import analyze_audio_bytes
+    result, proc_time = analyze_audio_bytes(wav_bytes, ".wav", filename="phone_recorded.wav", is_live=False)
+
+    speech_pf = [w.p_fake for w in result.window_results if w.is_speech]
+    highest = max(speech_pf) if speech_pf else 0.0
+
+    return AnalysisResponse(
+        filename="phone_recorded.wav",
+        p_fake=result.p_fake,
+        classification=result.classification,
+        label=result.label,
+        highest_probability=round(highest, 4),
+        average_probability=result.p_fake,
+        duration=round(result.duration_s, 2),
+        windows_analyzed=result.windows_total,
+        windows_speech=result.windows_speech,
+        processing_time=round(proc_time, 2),
+        audio_quality=result.audio_quality,
+        confidence=result.confidence,
+    )
+
+
+# ── Routes: USB Bridge ────────────────────────────────────────────────────────
+_usb_state: dict = {"state": "disconnected", "last_audio_ts": None}
+
+@app.get("/api/usb/status", response_model=UsbStatusResponse)
+def usb_status():
+    return UsbStatusResponse(state=_usb_state["state"], last_audio_ts=_usb_state["last_audio_ts"])
+
+
+@app.post("/api/usb/stream")
+async def usb_stream(audio: UploadFile = File(...)):
+    audio_bytes = await audio.read()
+    filename = audio.filename or "usb_audio.wav"
+    ext = Path(filename).suffix.lower() or ".wav"
+
+    _usb_state["state"] = "streaming"
+    _usb_state["last_audio_ts"] = time.time()
+
+    from audio_pipeline import analyze_audio_bytes
+    result, proc_time = analyze_audio_bytes(audio_bytes, ext, filename=filename, is_live=False)
+
+    risk_level = "high" if result.classification == "likely_ai_generated" else (
+        "medium" if result.classification == "suspicious" else "low"
+    )
+
+    return {
+        "classification": result.classification,
+        "label": result.label,
+        "p_fake": result.p_fake,
+        "confidence": result.confidence,
+        "risk_level": risk_level,
+        "windows_analyzed": result.windows_total,
+        "windows_speech": result.windows_speech,
+        "audio_quality": result.audio_quality,
+        "processing_time": round(proc_time, 2),
+    }
+
+
+# ── Mobile Browser UI Route ───────────────────────────────────────────────────
+@app.get("/mobile", response_class=HTMLResponse)
+def mobile_page():
+    if MOBILE_HTML.exists():
+        return HTMLResponse(content=MOBILE_HTML.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h1>Mobile page not found</h1>", status_code=404)

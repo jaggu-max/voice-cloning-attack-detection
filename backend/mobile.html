@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>VoiceGuard — Phone Audio Stream</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --forest: #1A3C2B;
+    --paper: #F7F7F5;
+    --coral: #FF8C69;
+    --mint: #9EFFBF;
+    --gold: #F4D35E;
+    --green-ok: #22c55e;
+    --red-err: #ef4444;
+    --yellow-warn: #f59e0b;
+  }
+  body {
+    background: var(--paper);
+    color: var(--forest);
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0;
+    overflow-x: hidden;
+  }
+  header {
+    width: 100%;
+    background: var(--forest);
+    color: var(--paper);
+    padding: 20px 24px 16px;
+    text-align: center;
+    letter-spacing: 0.12em;
+  }
+  header h1 { font-size: 18px; font-weight: 700; }
+  header p  { font-size: 10px; opacity: 0.75; margin-top: 4px; letter-spacing: 0.2em; }
+
+  .content {
+    width: 100%;
+    max-width: 480px;
+    padding: 20px 20px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    flex: 1;
+  }
+
+  .card {
+    border: 1px solid rgba(26,60,43,0.2);
+    background: white;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .card-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    opacity: 0.55;
+  }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--red-err);
+    transition: background 0.3s;
+  }
+  .dot.ok    { background: var(--green-ok); animation: pulse-dot 1.5s ease-in-out infinite; }
+  .dot.warn  { background: var(--yellow-warn); }
+  .dot.err   { background: var(--red-err); }
+
+  @keyframes pulse-dot {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.5; transform: scale(0.75); }
+  }
+
+  /* Telemetry metrics grid */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .metric-box {
+    background: rgba(26,60,43,0.04);
+    border: 1px solid rgba(26,60,43,0.1);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .metric-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    opacity: 0.6;
+  }
+  .metric-val {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--forest);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Level meter */
+  .level-track {
+    height: 12px;
+    background: rgba(26,60,43,0.08);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .level-fill {
+    height: 100%;
+    background: var(--forest);
+    border-radius: 6px;
+    width: 0%;
+    transition: width 0.06s linear;
+  }
+  .level-fill.loud { background: var(--coral); }
+
+  /* Buttons */
+  .btn {
+    width: 100%;
+    padding: 16px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.2s, background 0.2s;
+  }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-start {
+    background: var(--forest);
+    color: var(--paper);
+  }
+  .btn-stop {
+    background: transparent;
+    color: var(--forest);
+    border: 1.5px solid var(--forest);
+  }
+  .btn-start:not(:disabled):active { opacity: 0.8; }
+  .btn-stop:not(:disabled):active  { background: rgba(26,60,43,0.07); }
+
+  /* Result card */
+  .result-badge {
+    display: inline-block;
+    padding: 6px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    border-radius: 2px;
+  }
+  .result-badge.human   { background: rgba(34,197,94,0.15); color: #15803d; border: 1px solid rgba(34,197,94,0.4); }
+  .result-badge.ai      { background: rgba(255,140,105,0.15); color: #c2410c; border: 1px solid rgba(255,140,105,0.4); }
+  .result-badge.susp   { background: rgba(245,158,11,0.15); color: #92400e; border: 1px solid rgba(245,158,11,0.4); }
+  .result-badge.insuf  { background: rgba(26,60,43,0.08); color: var(--forest); border: 1px solid rgba(26,60,43,0.2); }
+
+  .conf-val { font-size: 32px; font-weight: 700; }
+
+  #error-msg {
+    display: none;
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.3);
+    color: #b91c1c;
+    padding: 12px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .url-info {
+    font-size: 10px;
+    opacity: 0.45;
+    word-break: break-all;
+    margin-top: 2px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>VOICEGUARD</h1>
+  <p>PHONE AUDIO — SECURE STREAMING</p>
+</header>
+
+<div class="content">
+
+  <!-- Error notification -->
+  <div id="error-msg"></div>
+
+  <!-- Connection status -->
+  <div class="card">
+    <div class="card-title">Connection</div>
+    <div class="status-row">
+      <div class="dot" id="dot-conn"></div>
+      <span id="lbl-conn">Connecting...</span>
+    </div>
+    <div class="url-info" id="ws-url-display"></div>
+  </div>
+
+  <!-- Microphone status -->
+  <div class="card">
+    <div class="card-title">Microphone</div>
+    <div class="status-row">
+      <div class="dot" id="dot-mic"></div>
+      <span id="lbl-mic">Not requested</span>
+    </div>
+  </div>
+
+  <!-- Audio Stream status -->
+  <div class="card">
+    <div class="card-title">Audio Stream</div>
+    <div class="status-row">
+      <div class="dot" id="dot-stream"></div>
+      <span id="lbl-stream">Not streaming</span>
+    </div>
+  </div>
+
+  <!-- Audio Level Bar -->
+  <div class="card">
+    <div class="card-title">Live Audio Level</div>
+    <div class="level-track">
+      <div class="level-fill" id="level-fill"></div>
+    </div>
+  </div>
+
+  <!-- Real-time Telemetry Metrics -->
+  <div class="card">
+    <div class="card-title">Live Stream Telemetry</div>
+    <div class="metrics-grid">
+      <div class="metric-box">
+        <span class="metric-label">Frames Sent</span>
+        <span class="metric-val" id="metric-frames">0</span>
+      </div>
+      <div class="metric-box">
+        <span class="metric-label">Bytes Sent</span>
+        <span class="metric-val" id="metric-bytes">0 KB</span>
+      </div>
+      <div class="metric-box">
+        <span class="metric-label">Duration</span>
+        <span class="metric-val" id="metric-duration">00:00</span>
+      </div>
+      <div class="metric-box">
+        <span class="metric-label">Sample Rate</span>
+        <span class="metric-val">16 kHz</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action Controls -->
+  <button class="btn btn-start" id="btn-start" disabled onclick="startAudio()">
+    [ START AUDIO ]
+  </button>
+  <button class="btn btn-stop" id="btn-stop" style="display:none" onclick="stopAudio()">
+    [ STOP AUDIO ]
+  </button>
+
+  <!-- Analysis result from laptop -->
+  <div class="card" id="result-card" style="display:none">
+    <div class="card-title">Pellav2 Analysis Result</div>
+    <div class="status-row" style="flex-wrap:wrap; gap:6px;">
+      <span class="result-badge" id="result-badge">—</span>
+      <span class="conf-val" id="result-conf">—</span>
+    </div>
+    <div style="font-size:11px; opacity:0.6; margin-top:4px;" id="result-detail">—</div>
+  </div>
+
+</div>
+
+<script>
+// ── Config & Dynamic Protocol ────────────────────────────────────────────────
+const urlParams = new URLSearchParams(window.location.search);
+const token = urlParams.get('token') || '';
+const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_URL = `${wsProto}//${window.location.host}/ws/phone?token=${encodeURIComponent(token)}`;
+const SR = 16000;      // Required 16 kHz sample rate
+const CHUNK_MS = 200;  // Send PCM frames every 200ms
+
+// ── State variables ──────────────────────────────────────────────────────────
+let ws = null;
+let stream = null;
+let audioCtx = null;
+let processor = null;
+let micSource = null;
+let isStreaming = false;
+
+let framesCount = 0;
+let bytesCount = 0;
+let durationSec = 0;
+let durationTimer = null;
+
+// ── UI Helpers ────────────────────────────────────────────────────────────────
+function setDot(id, state) {
+  const el = document.getElementById(id);
+  el.className = 'dot ' + (state === 'ok' ? 'ok' : state === 'warn' ? 'warn' : 'err');
+}
+function setText(id, text) { document.getElementById(id).textContent = text; }
+
+function showError(msg) {
+  const el = document.getElementById('error-msg');
+  el.style.display = 'block';
+  el.textContent = msg;
+}
+function clearError() {
+  document.getElementById('error-msg').style.display = 'none';
+}
+function fmtTime(s) {
+  return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+}
+function fmtBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  return (b / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+// ── WebSocket Management ──────────────────────────────────────────────────────
+function connectWebSocket() {
+  document.getElementById('ws-url-display').textContent = WS_URL;
+  setDot('dot-conn', 'warn');
+  setText('lbl-conn', 'Connecting...');
+
+  ws = new WebSocket(WS_URL);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    setDot('dot-conn', 'ok');
+    setText('lbl-conn', 'Connected');
+    clearError();
+    ws.send(JSON.stringify({ type: 'CONNECT', clientId: String(Date.now()), token }));
+    requestMicPermission();
+  };
+
+  ws.onmessage = (evt) => {
+    if (typeof evt.data === 'string') {
+      try {
+        const msg = JSON.parse(evt.data);
+        handleServerMessage(msg);
+      } catch (e) {}
+    }
+  };
+
+  ws.onerror = () => {
+    setDot('dot-conn', 'err');
+    setText('lbl-conn', 'Connection error');
+    showError('WebSocket connection failed. Verify VoiceGuard backend is running with matching protocol (' + wsProto + ').');
+  };
+
+  ws.onclose = () => {
+    setDot('dot-conn', 'err');
+    setText('lbl-conn', 'Disconnected — Reconnecting...');
+    document.getElementById('btn-start').disabled = true;
+    if (isStreaming) stopAudio();
+    setTimeout(connectWebSocket, 3000);
+  };
+}
+
+function handleServerMessage(msg) {
+  if (msg.type === 'ACK') {
+    console.log('Server ACK:', msg);
+  } else if (msg.type === 'RESULT') {
+    showResult(msg);
+  } else if (msg.type === 'PING') {
+    ws && ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'HEARTBEAT' }));
+  }
+}
+
+// ── Microphone Guard & Permission ─────────────────────────────────────────────
+async function requestMicPermission() {
+  setDot('dot-mic', 'warn');
+  setText('lbl-mic', 'Requesting permission...');
+
+  // Requirement 3: Check navigator.mediaDevices before calling getUserMedia
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setDot('dot-mic', 'err');
+    setText('lbl-mic', 'Insecure origin error');
+    showError(`Microphone requires a secure HTTPS connection. Please access this page via HTTPS (https://${window.location.host}/mobile).`);
+    return;
+  }
+
+  try {
+    // Exact audio constraints required
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      }
+    });
+
+    setDot('dot-mic', 'ok');
+    setText('lbl-mic', 'Ready');
+    document.getElementById('btn-start').disabled = false;
+    ws && ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'MIC_READY' }));
+  } catch (err) {
+    setDot('dot-mic', 'err');
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      setText('lbl-mic', 'Permission denied');
+      showError('Microphone permission denied. Allow microphone access in your browser settings.');
+    } else {
+      setText('lbl-mic', 'Error: ' + err.name);
+      showError('Microphone error: ' + err.message);
+    }
+  }
+}
+
+// ── Real Audio Capture & PCM Conversion ──────────────────────────────────────
+async function startAudio() {
+  if (!stream || !ws || ws.readyState !== WebSocket.OPEN) return;
+  clearError();
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SR });
+  micSource = audioCtx.createMediaStreamSource(stream);
+
+  const bufferSize = 2048;
+  processor = audioCtx.createScriptProcessor(bufferSize, 1, 1);
+
+  micSource.connect(processor);
+  processor.connect(audioCtx.destination);
+
+  framesCount = 0;
+  bytesCount = 0;
+  durationSec = 0;
+
+  let accumulator = new Float32Array(0);
+  const samplesPerChunk = Math.floor(SR * CHUNK_MS / 1000);
+
+  processor.onaudioprocess = (e) => {
+    if (!isStreaming) return;
+    const input = e.inputBuffer.getChannelData(0);
+
+    // Calculate real RMS level from actual mic samples
+    let sum = 0;
+    for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+    const rms = Math.sqrt(sum / input.length);
+    const levelPct = Math.min(100, Math.round(rms * 400));
+    const fill = document.getElementById('level-fill');
+    fill.style.width = levelPct + '%';
+    fill.className = 'level-fill' + (levelPct > 70 ? ' loud' : '');
+
+    // Accumulate Float32 samples
+    const next = new Float32Array(accumulator.length + input.length);
+    next.set(accumulator);
+    next.set(input, accumulator.length);
+    accumulator = next;
+
+    // Package into 16-bit Int16 PCM LE frames
+    while (accumulator.length >= samplesPerChunk) {
+      const chunkFloat = accumulator.slice(0, samplesPerChunk);
+      accumulator = accumulator.slice(samplesPerChunk);
+
+      const pcm16 = float32ToInt16(chunkFloat);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(pcm16.buffer);
+        framesCount++;
+        bytesCount += pcm16.byteLength;
+
+        document.getElementById('metric-frames').textContent = framesCount.toLocaleString();
+        document.getElementById('metric-bytes').textContent = fmtBytes(bytesCount);
+      }
+    }
+  };
+
+  isStreaming = true;
+  setDot('dot-stream', 'ok');
+  setText('lbl-stream', 'Streaming');
+
+  ws.send(JSON.stringify({ type: 'START' }));
+
+  durationTimer = setInterval(() => {
+    durationSec++;
+    document.getElementById('metric-duration').textContent = fmtTime(durationSec);
+  }, 1000);
+
+  document.getElementById('btn-start').style.display = 'none';
+  document.getElementById('btn-stop').style.display = 'block';
+}
+
+function stopAudio() {
+  isStreaming = false;
+
+  setDot('dot-stream', 'err');
+  setText('lbl-stream', 'Stopped');
+
+  if (processor) { processor.disconnect(); processor = null; }
+  if (micSource)  { micSource.disconnect();  micSource = null;  }
+  if (audioCtx)   { audioCtx.close();        audioCtx = null;   }
+  if (durationTimer) { clearInterval(durationTimer); durationTimer = null; }
+
+  const fill = document.getElementById('level-fill');
+  if (fill) fill.style.width = '0%';
+
+  ws && ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'STOP' }));
+
+  document.getElementById('btn-stop').style.display = 'none';
+  document.getElementById('btn-start').style.display = 'block';
+}
+
+function float32ToInt16(f32) {
+  const i16 = new Int16Array(f32.length);
+  for (let i = 0; i < f32.length; i++) {
+    const s = Math.max(-1, Math.min(1, f32[i]));
+    i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  return i16;
+}
+
+// ── Result Display ────────────────────────────────────────────────────────────
+function showResult(msg) {
+  const card = document.getElementById('result-card');
+  card.style.display = 'block';
+
+  const badge = document.getElementById('result-badge');
+  const conf  = document.getElementById('result-conf');
+  const detail = document.getElementById('result-detail');
+
+  let cls = msg.classification;
+  if (cls === 'likely_real') {
+    badge.textContent = '✓ Human Speech';
+    badge.className = 'result-badge human';
+  } else if (cls === 'likely_ai_generated') {
+    badge.textContent = '⚠ AI Generated';
+    badge.className = 'result-badge ai';
+  } else if (cls === 'suspicious') {
+    badge.textContent = '? Suspicious';
+    badge.className = 'result-badge susp';
+  } else {
+    badge.textContent = 'Insufficient Audio';
+    badge.className = 'result-badge insuf';
+  }
+
+  conf.textContent = msg.confidence ? msg.confidence.toFixed(1) + '%' : '—';
+  detail.textContent = `Windows: ${msg.windows_speech || 0}/${msg.windows_analyzed || 0} speech  ·  Quality: ${msg.audio_quality || '—'}`;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+window.addEventListener('load', connectWebSocket);
+</script>
+</body>
+</html>

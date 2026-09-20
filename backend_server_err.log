@@ -1,4 +1,56 @@
-INFO:     Started server process [21344]
+INFO:     Started server process [14620]
 INFO:     Waiting for application startup.
+INFO:voiceguard:Pre-warming Pellav2 model...
+INFO:voiceguard.pipeline:Loading Pellav2 model on cpu from C:\Users\HP\Downloads\voice-detector\pellav2_detector.pt
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/facebook/wav2vec2-xls-r-300m/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+WARNING:huggingface_hub.utils._http:Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/wav2vec2-xls-r-300m/1a640f32ac3e39899438a2931f9924c02f080a54/config.json?%2Ffacebook%2Fwav2vec2-xls-r-300m%2Fresolve%2Fmain%2Fconfig.json=&etag=%222e7517d6705d22aef2fa4fd0bcc83b47f4757bd3%22 "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/facebook/wav2vec2-xls-r-300m/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/facebook/wav2vec2-xls-r-300m/resolve/main/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/facebook/wav2vec2-xls-r-300m/resolve/main/pytorch_model.bin "HTTP/1.1 302 Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/facebook/wav2vec2-xls-r-300m/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/facebook/wav2vec2-xls-r-300m "HTTP/1.1 200 OK"
+Loading weights:   0%|          | 0/422 [00:00<?, ?it/s]Loading weights: 100%|##########| 422/422 [00:00<00:00, 25455.85it/s]
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/facebook/wav2vec2-xls-r-300m/commits/main "HTTP/1.1 200 OK"
+[transformers] [1mWav2Vec2Model LOAD REPORT[0m from: facebook/wav2vec2-xls-r-300m
+Key                          | Status     |  | 
+-----------------------------+------------+--+-
+project_hid.bias             | UNEXPECTED |  | 
+project_hid.weight           | UNEXPECTED |  | 
+project_q.weight             | UNEXPECTED |  | 
+quantizer.weight_proj.weight | UNEXPECTED |  | 
+project_q.bias               | UNEXPECTED |  | 
+quantizer.codevectors        | UNEXPECTED |  | 
+quantizer.weight_proj.bias   | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/facebook/wav2vec2-xls-r-300m/discussions?p=0 "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/facebook/wav2vec2-xls-r-300m/commits/refs%2Fpr%2F36 "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/facebook/wav2vec2-xls-r-300m/resolve/refs%2Fpr%2F36/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/facebook/wav2vec2-xls-r-300m/resolve/refs%2Fpr%2F36/model.safetensors "HTTP/1.1 302 Found"
+INFO:voiceguard.pipeline:Pellav2 model loaded.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:59295 - "WebSocket /ws/phone" [accepted]
+INFO:     connection open
+INFO:voiceguard:Phone client connected: 2755783856016 (total=1)
+INFO:voiceguard.pipeline:Input [e139b8d5-d6af-4a39-9733-267e37142a00.mp3] decoded: sr=16000  dur=49.14s  rms=0.05020  silence=1.9%
+INFO:voiceguard.pipeline:Segmented into 13 windows (4s each)
+INFO:voiceguard.pipeline:Aggregation: classification=likely_real mean_p=0.1190 speech_wins=12 total=13
+INFO:voiceguard.pipeline:Pipeline complete: likely_real (49.97s)
+INFO:     127.0.0.1:11663 - "WebSocket /ws/phone" [accepted]
+INFO:     connection open
+INFO:voiceguard:Phone client connected: 2755784043408 (total=2)
+ERROR:voiceguard:Phone WebSocket error: Cannot call "receive" once a disconnect message has been received.
+INFO:voiceguard.pipeline:Input [e139b8d5-d6af-4a39-9733-267e37142a00.mp3] decoded: sr=16000  dur=49.14s  rms=0.05020  silence=1.9%
+INFO:voiceguard.pipeline:Segmented into 13 windows (4s each)
+INFO:voiceguard.pipeline:Aggregation: classification=likely_real mean_p=0.1190 speech_wins=12 total=13
+INFO:voiceguard.pipeline:Pipeline complete: likely_real (65.54s)
+INFO:     127.0.0.1:64566 - "WebSocket /ws/phone" [accepted]
+INFO:     connection open
+INFO:voiceguard:Phone client connected: 2757055268240 (total=2)
+INFO:     127.0.0.1:27221 - "WebSocket /ws/phone" [accepted]
+INFO:     connection open
+INFO:voiceguard:Phone client connected: 2757054274256 (total=3)
